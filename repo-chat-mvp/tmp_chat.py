@@ -5,6 +5,7 @@ import pickle
 import hashlib
 import sys
 from collections import defaultdict
+import requests
 
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -31,6 +32,10 @@ ALLOWED_DOMAINS = ["github.com"]
 CLONE_BASE_DIR = os.getenv("CLONE_BASE_DIR", "./tmp")
 INDEX_FILE = os.getenv("INDEX_FILE", "./index.faiss")
 EMBEDS_CACHE = os.getenv("EMBEDS_CACHE", "embeds_cache.pkl")
+STRUCTURE_CACHE = os.getenv("STRUCTURE_CACHE", "structure_cache.pkl")
+
+# Global structure storage
+repo_structures = {}
 
 # ----------------------------------------------------------------------------
 # OpenAI client
@@ -41,6 +46,46 @@ client = OpenAI(api_key=OPENAI_API_KEY)
 # ----------------------------------------------------------------------------
 # Embed cache helpers
 # ----------------------------------------------------------------------------
+def fetch_structure(url: str, path: str, language: str):
+    payload = {"path": path, "language": language}
+    headers = {"Content-Type": "application/json"}
+    resp = requests.post(url, json=payload, headers=headers)
+    try:
+        resp.raise_for_status()
+    except requests.HTTPError as e:
+        print(f"Error {resp.status_code}: {resp.text}", file=sys.stderr)
+        sys.exit(1)
+    return resp.json()
+
+
+def format_node(node: dict, indent: int = 0) -> str:
+    """
+    Преобразует узел и его детей в человекочитаемый формат.
+    """
+    pad = "  " * indent
+    lines = []
+    ntype = node.get("type")
+    name = node.get("name", "")
+    if ntype == "directory":
+        lines.append(f"{pad}📁 {name}/")
+        for child in node.get("children", []):
+            lines.append(format_node(child, indent + 1))
+    elif ntype == "file":
+        lines.append(f"{pad}📄 {name}")
+        # функции
+        for fn in node.get("functions", []):
+            lines.append(f"{pad}  └─ fn: {fn}()")
+        # классы и методы
+        for cls in node.get("classes", []):
+            lines.append(f"{pad}  └─ class: {cls.get('name')}")
+            for m in cls.get("methods", []):
+                lines.append(f"{pad}      └─ method: {m}()")
+    else:
+        # неизвестный тип
+        lines.append(f"{pad}{name} ({ntype})")
+    return "\n".join(lines)
+
+
 def load_embed_cache():
     """
     Load the embedding cache from disk.
@@ -276,6 +321,39 @@ class ChatCore:
 core = ChatCore()
 
 
+def format_node(node: dict, indent: int = 0) -> str:
+    """
+    Преобразует узел и его детей в человекочитаемый формат.
+    """
+    pad = "  " * indent
+    lines = []
+    ntype = node.get("type")
+    name = node.get("name", "")
+    if ntype == "directory":
+        lines.append(f"{pad}📁 {name}/")
+        for child in node.get("children", []):
+            lines.append(format_node(child, indent + 1))
+    elif ntype == "file":
+        lines.append(f"{pad}📄 {name}")
+        # функции
+        for fn in node.get("functions", []):
+            lines.append(f"{pad}  └─ fn: {fn}()")
+        # классы и методы
+        for cls in node.get("classes", []):
+            lines.append(f"{pad}  └─ class: {cls.get('name')}")
+            for m in cls.get("methods", []):
+                lines.append(f"{pad}      └─ method: {m}()")
+    else:
+        # неизвестный тип
+        lines.append(f"{pad}{name} ({ntype})")
+    return "\n".join(lines)
+
+
+def save_readable(structure: dict):
+    text = format_node(structure)
+    return text
+
+
 # ----------------------------------------------------------------------------
 # Utility
 # ----------------------------------------------------------------------------
@@ -297,7 +375,9 @@ def is_allowed_repo(repo_url: str) -> bool:
 # Celery task
 # ----------------------------------------------------------------------------
 @celery.task(bind=True)
-def clone_and_ingest(self, repo_url: str):
+def clone_and_ingest(
+    self, repo_url: str, branch: str = "main", github_token: str = None
+):
     """
     Clone and ingest a repository as a background task.
 
@@ -319,19 +399,51 @@ def clone_and_ingest(self, repo_url: str):
         ValueError: If the repository domain is not allowed
         RuntimeError: If the Git clone operation fails
     """
+
     if not is_allowed_repo(repo_url):
         raise ValueError(f"Domain not allowed: {repo_url}")
     tmpdir = tempfile.mkdtemp(dir=CLONE_BASE_DIR)
     try:
+        # Derive repo name and clone target path
         name = os.path.basename(repo_url.rstrip("/")).removesuffix(".git")
         target = os.path.join(tmpdir, name)
-        Repo.clone_from(repo_url, target)
+
+        # Clone repository
+        Repo.clone_from(
+            repo_url,
+            target,
+            branch=branch,
+            single_branch=True,
+        )
+        print(f"Cloned {repo_url} branch {branch} to {target}")
+
+        # Extract owner and repo for GitHub API call
+        parsed = urlparse(repo_url)
+        owner_repo = parsed.path.strip("/").removesuffix(".git")  # e.g., "owner/repo"
+
+        # Call GitHub API to fetch primary language
+        api_url = f"https://api.github.com/repos/{owner_repo}"
+        headers = {}
+        GITHUB_TOKEN = github_token
+        if GITHUB_TOKEN:
+            headers["Authorization"] = f"token {GITHUB_TOKEN}"
+
+        response = requests.get(api_url, headers=headers, timeout=10)
+        if response.status_code != 200:
+            raise RuntimeError(
+                f"GitHub API request failed: {response.status_code} {response.text}"
+            )
+        repo_data = response.json()
+        language = repo_data.get("language")
+
+        # Ingest repository contents
         count = core.ingest(target)
+
         return {"repo": name, "items": count}
     except GitCommandError as e:
         raise RuntimeError("Git clone failed: " + str(e))
     finally:
-        shutil.rmtree(tmpdir, ignore_errors=True)
+        ...
 
 
 # ----------------------------------------------------------------------------

@@ -30,3 +30,6 @@ __pycache__
 *.index
 *.pkl
 docs/
+*.rdb
+tmp/
+*.faiss
