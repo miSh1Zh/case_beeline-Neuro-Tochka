@@ -32,6 +32,12 @@ CORS(app)  # Enable CORS for all routes
 
 
 def load_embed_cache():
+    """
+    Load the embedding cache from disk.
+    
+    Returns:
+        dict: The embedding cache, or an empty dictionary if the cache file doesn't exist
+    """
     if os.path.exists(EMBEDS_CACHE):
         with open(EMBEDS_CACHE, "rb") as f:
             return pickle.load(f)
@@ -39,20 +45,75 @@ def load_embed_cache():
 
 
 def save_embed_cache(cache):
+    """
+    Save the embedding cache to disk.
+    
+    Args:
+        cache (dict): The embedding cache to save
+        
+    Returns:
+        None
+    """
     with open(EMBEDS_CACHE, "wb") as f:
         pickle.dump(cache, f)
 
 
 def chunk_id(item: dict) -> str:
+    """
+    Generate a unique identifier for a text chunk.
+    
+    This function creates a hash from the text chunk content and combines it with
+    the file path to create a unique identifier.
+    
+    Args:
+        item (dict): Dictionary containing 'path' and 'chunk' keys
+        
+    Returns:
+        str: A unique identifier string for the chunk
+    """
     h = hashlib.sha256(item["chunk"].encode("utf-8")).hexdigest()
     return f"{item['path']}::{h}"
 
 
 class ChatCore:
+    """
+    Core class for the repository chat functionality.
+    
+    This class handles repository ingestion, embedding generation, and answering
+    user queries about the repository code using semantic search and LLM-generated responses.
+    
+    Attributes:
+        store (HybridStore): Vector store for hybrid search functionality
+    """
+    
     def __init__(self, dim=1536):
+        """
+        Initialize a new ChatCore instance.
+        
+        Args:
+            dim (int, optional): Dimensionality of the embedding vectors. Defaults to 1536.
+        """
         self.store = HybridStore(dim)
 
     def ingest(self, repo_path: str):
+        """
+        Ingest a repository for semantic search and documentation generation.
+        
+        This method:
+        1. Parses all supported files in the repository
+        2. Generates documentation for each code element and file
+        3. Creates embeddings for all documentation
+        4. Builds and persists search indices
+        
+        Args:
+            repo_path (str): Path to the local repository
+            
+        Returns:
+            None
+            
+        Raises:
+            Exception: If parsing, documentation generation, or embedding fails
+        """
         # Parse all supported files in the repo
         all_defs = parse_directory(repo_path)
 
@@ -151,6 +212,23 @@ class ChatCore:
         self.store.persist()
 
     def answer(self, query: str) -> str:
+        """
+        Answer a user query about the repository.
+        
+        This method:
+        1. Embeds the user query
+        2. Retrieves relevant documentation using hybrid search
+        3. Generates a response using an LLM with the documentation as context
+        
+        Args:
+            query (str): The user's question about the repository
+            
+        Returns:
+            str: The generated answer from the LLM
+            
+        Raises:
+            RuntimeError: If search indices haven't been built
+        """
         # Embed the user query
         resp = client.embeddings.create(input=query, model="text-embedding-3-small")
         qvec = resp.data[0].embedding
@@ -174,6 +252,62 @@ class ChatCore:
 
 @app.route("/api/clone", methods=["POST"])
 def clone_repo():
+    """
+    Clone a Git repository for ingestion.
+    
+    This endpoint accepts a repository URL and optional authentication token,
+    clones the repository locally, and returns the path to the cloned repository.
+    
+    ---
+    tags:
+      - Repository Management
+    parameters:
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          required:
+            - repo_url
+          properties:
+            repo_url:
+              type: string
+              description: URL of the Git repository to clone
+            token:
+              type: string
+              description: Optional authentication token for private repositories
+    responses:
+      200:
+        description: Repository successfully cloned
+        schema:
+          type: object
+          properties:
+            status:
+              type: string
+              description: Status message
+            path:
+              type: string
+              description: Path to the cloned repository
+      400:
+        description: Invalid request parameters or directory already exists
+        schema:
+          type: object
+          properties:
+            error:
+              type: string
+              description: Error message
+      500:
+        description: Git clone operation failed
+        schema:
+          type: object
+          properties:
+            error:
+              type: string
+              description: Error message
+            details:
+              type: string
+              description: Detailed error information
+    """
     data = request.get_json() or {}
     repo_url = data.get("repo_url")
     token = data.get("token")
@@ -209,6 +343,54 @@ def clone_repo():
 
 @app.route("/api/chat", methods=["POST"])
 def chat_endpoint():
+    """
+    Answer a question about the repository's code.
+    
+    This endpoint accepts a user message, processes it through the ChatCore,
+    and returns a response generated by the language model based on relevant
+    documentation from the repository.
+    
+    ---
+    tags:
+      - Chat
+    parameters:
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          required:
+            - message
+          properties:
+            message:
+              type: string
+              description: User's question about the repository
+    responses:
+      200:
+        description: Successful response
+        schema:
+          type: object
+          properties:
+            response:
+              type: string
+              description: AI-generated answer to the user's question
+      400:
+        description: Invalid request parameters
+        schema:
+          type: object
+          properties:
+            error:
+              type: string
+              description: Error message
+      500:
+        description: Server error
+        schema:
+          type: object
+          properties:
+            error:
+              type: string
+              description: Error message
+    """
     data = request.json or {}
     msg = data.get("message", "")
     core = ChatCore()
@@ -217,6 +399,22 @@ def chat_endpoint():
 
 
 def main():
+    """
+    Main entry point for the CLI chat application.
+    
+    This function handles two modes of operation:
+    1. Ingesting a repository (when only the repository path is provided)
+    2. Answering a query about a repository (when both repository path and query are provided)
+    
+    Args:
+        None: Arguments are read from sys.argv
+        
+    Returns:
+        None
+        
+    Raises:
+        SystemExit: If no repository path is provided as an argument
+    """
     if len(sys.argv) < 2:
         print("Usage: python chat.py <repo_path> [query]")
         sys.exit(1)

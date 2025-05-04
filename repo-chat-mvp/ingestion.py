@@ -14,6 +14,23 @@ from clang.cindex import CursorKind
 def parse_python(src: str, path: str) -> List[Dict]:
     """
     Parse a Python file and extract top-level functions, async functions, classes, and methods.
+    
+    This function uses the abstract syntax tree (AST) to identify and extract 
+    important code elements from Python source code, including their names, types, and source.
+    
+    Args:
+        src (str): The Python source code as a string
+        path (str): The file path, used for identification in the returned data
+        
+    Returns:
+        List[Dict]: A list of dictionaries, each containing:
+            - path (str): The original file path
+            - name (str): The name of the function/class/method
+            - type (str): The type of the element (function, async_function, class, method, async_method)
+            - code (str): The source code of the element
+            
+    Raises:
+        SyntaxError: If the Python code contains syntax errors
     """
     tree = ast.parse(src)
     docs: List[Dict] = []
@@ -76,7 +93,23 @@ def parse_python(src: str, path: str) -> List[Dict]:
 def parse_javascript(src: str, path: str) -> List[Dict]:
     """
     Parse a JavaScript/JSX file and extract top-level functions, classes, and methods.
-    Enables JSX mode and rewrites <>…</> fragments.
+    
+    This function uses esprima to parse JavaScript code, including JSX syntax,
+    and extracts important code elements with their source code.
+    
+    Args:
+        src (str): The JavaScript/JSX source code as a string
+        path (str): The file path, used for identification in the returned data
+        
+    Returns:
+        List[Dict]: A list of dictionaries, each containing:
+            - path (str): The original file path
+            - name (str): The name of the function/class/method
+            - type (str): The type of the element (function, class, method)
+            - code (str): The source code of the element
+            
+    Raises:
+        Exception: If parsing fails due to syntax errors
     """
     try:
         # Enable JSX and retain character ranges
@@ -136,6 +169,23 @@ def parse_javascript(src: str, path: str) -> List[Dict]:
 def parse_java(src: str, path: str) -> List[Dict]:
     """
     Parse a Java file and extract classes and their methods.
+    
+    This function uses javalang to parse Java source code and extract classes and methods
+    with their source code.
+    
+    Args:
+        src (str): The Java source code as a string
+        path (str): The file path, used for identification in the returned data
+        
+    Returns:
+        List[Dict]: A list of dictionaries, each containing:
+            - path (str): The original file path
+            - name (str): The name of the class/method
+            - type (str): The type of the element (class, method)
+            - code (str): The source code of the element
+            
+    Raises:
+        Exception: If parsing fails due to syntax errors
     """
     try:
         tree = javalang.parse.parse(src)
@@ -184,6 +234,23 @@ def parse_java(src: str, path: str) -> List[Dict]:
 def parse_c_cpp(src: str, path: str) -> List[Dict]:
     """
     Parse a C or C++ file and extract top-level functions, methods, classes, and structs.
+    
+    This function uses the clang library to parse C/C++ source code and extract 
+    important elements with their source code.
+    
+    Args:
+        src (str): The C/C++ source code as a string
+        path (str): The file path, used for identification in the returned data
+        
+    Returns:
+        List[Dict]: A list of dictionaries, each containing:
+            - path (str): The original file path
+            - name (str): The name of the function/class/method/struct
+            - type (str): The type of the element (function, method, class, struct)
+            - code (str): The source code of the element
+            
+    Raises:
+        Exception: If parsing fails
     """
     index = cindex.Index.create()
     # you can pass in extra args (e.g. include dirs, -std=c++17) if needed:
@@ -255,28 +322,60 @@ PARSERS: Dict[str, Callable[[str, str], List[Dict]]] = {
 
 def parse_file(path: str) -> List[Dict]:
     """
-    Dispatch to the appropriate parser based on file extension.
+    Parse a source code file based on its extension and extract code elements.
+    
+    This function determines the file type by extension and dispatches to the 
+    appropriate parser function to extract code elements.
+    
+    Args:
+        path (str): The path to the source code file
+        
+    Returns:
+        List[Dict]: A list of dictionaries containing information about code elements
+            See individual parser functions for details on the returned format
+            
+    Raises:
+        Exception: If file reading or parsing fails
     """
-    ext = Path(path).suffix.lower()
-    parser = PARSERS.get(ext)
-    if not parser:
-        return []
+    ext = os.path.splitext(path)[1].lower()
+    if ext not in PARSERS:
+        return []  # Skip unsupported files
+
     try:
-        with open(path, "r", encoding="utf-8", errors="ignore") as f:
-            src = f.read()
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            content = f.read()
+
+        if not content.strip():
+            return []  # Skip empty files
+
+        return PARSERS[ext](content, path)
     except Exception as e:
-        print(f"Warning: could not read file {path!r}: {e}")
+        print(f"Error parsing {path}: {e}")
         return []
-    return parser(src, path)
 
 
 def parse_directory(root: str) -> List[Dict]:
     """
-    Walk a directory recursively and parse all supported files.
+    Recursively parse all source code files in a directory and its subdirectories.
+    
+    This function walks through a directory tree, identifies supported source code files
+    by extension, and parses them to extract code elements.
+    
+    Args:
+        root (str): The root directory to start parsing from
+        
+    Returns:
+        List[Dict]: A concatenated list of dictionaries containing information about code elements
+            from all parsed files. See individual parser functions for details on the returned format.
+            
+    Raises:
+        Exception: If directory traversal fails
     """
-    docs: List[Dict] = []
+    all_docs = []
     for dirpath, _, filenames in os.walk(root):
-        for fname in filenames:
-            full_path = os.path.join(dirpath, fname)
-            docs.extend(parse_file(full_path))
-    return docs
+        for filename in filenames:
+            path = os.path.join(dirpath, filename)
+            if not os.path.isfile(path):
+                continue  # Skip non-files (e.g., symlinks)
+            all_docs.extend(parse_file(path))
+    return all_docs

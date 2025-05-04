@@ -41,6 +41,12 @@ client = OpenAI(api_key=OPENAI_API_KEY)
 # Embed cache helpers
 # ----------------------------------------------------------------------------
 def load_embed_cache():
+    """
+    Load the embedding cache from disk.
+    
+    Returns:
+        dict: The embedding cache, or an empty dictionary if the cache file doesn't exist
+    """
     if os.path.exists(EMBEDS_CACHE):
         with open(EMBEDS_CACHE, "rb") as f:
             return pickle.load(f)
@@ -48,6 +54,15 @@ def load_embed_cache():
 
 
 def save_embed_cache(cache):
+    """
+    Save the embedding cache to disk.
+    
+    Args:
+        cache (dict): The embedding cache to save
+        
+    Returns:
+        None
+    """
     with open(EMBEDS_CACHE, "wb") as f:
         pickle.dump(cache, f)
 
@@ -56,6 +71,15 @@ def save_embed_cache(cache):
 # Chunk ID for caching
 # ----------------------------------------------------------------------------
 def chunk_id(item: dict) -> str:
+    """
+    Generate a unique identifier for a text chunk.
+    
+    Args:
+        item (dict): Dictionary containing 'path' and 'chunk' keys
+        
+    Returns:
+        str: A unique identifier string for the chunk
+    """
     h = hashlib.sha256(item["chunk"].encode("utf-8")).hexdigest()
     return f"{item['path']}::{h}"
 
@@ -64,6 +88,17 @@ def chunk_id(item: dict) -> str:
 # Flask + Celery setup
 # ----------------------------------------------------------------------------
 def make_celery(app):
+    """
+    Create a Celery instance for the Flask application.
+    
+    This function configures Celery to work within the Flask application context.
+    
+    Args:
+        app (Flask): The Flask application instance
+        
+    Returns:
+        Celery: Configured Celery instance
+    """
     celery = Celery(
         app.import_name,
         broker=app.config["CELERY_BROKER_URL"],
@@ -95,7 +130,24 @@ celery = make_celery(app)
 # ChatCore
 # ----------------------------------------------------------------------------
 class ChatCore:
+    """
+    Core class for the repository chat functionality.
+    
+    This class handles repository ingestion, embedding generation, and answering
+    user queries about the repository code.
+    
+    Attributes:
+        store (HybridStore): Vector store for hybrid search functionality
+    """
+    
     def __init__(self, dim=1536, index_path=None):
+        """
+        Initialize a new ChatCore instance.
+        
+        Args:
+            dim (int, optional): Dimensionality of the embedding vectors. Defaults to 1536.
+            index_path (str, optional): Path to load/save the index. Defaults to None.
+        """
         index_file = index_path or INDEX_FILE
         parent = os.path.dirname(index_file)
         if parent:
@@ -107,6 +159,15 @@ class ChatCore:
             pass
 
     def ingest(self, repo_path: str):
+        """
+        Ingest a repository for semantic search and documentation generation.
+        
+        Args:
+            repo_path (str): Path to the local repository
+            
+        Returns:
+            int: Number of code elements processed
+        """
         all_defs = parse_directory(repo_path)
         cache = load_embed_cache()
         all_embeds = []
@@ -185,6 +246,15 @@ class ChatCore:
         return len(all_defs)
 
     def answer(self, query: str) -> str:
+        """
+        Answer a user query about the repository.
+        
+        Args:
+            query (str): The user's question about the repository
+            
+        Returns:
+            str: The generated answer from the LLM
+        """
         resp = client.embeddings.create(input=query, model="text-embedding-3-small")
         qvec = resp.data[0].embedding
         q_tokens = query.split()
@@ -209,6 +279,15 @@ core = ChatCore()
 # Utility
 # ----------------------------------------------------------------------------
 def is_allowed_repo(repo_url: str) -> bool:
+    """
+    Check if the repository domain is allowed for cloning.
+    
+    Args:
+        repo_url (str): The repository URL to check
+        
+    Returns:
+        bool: True if the domain is allowed, False otherwise
+    """
     host = urlparse(repo_url).netloc.lower()
     return any(host.endswith(d) for d in ALLOWED_DOMAINS)
 
@@ -218,6 +297,27 @@ def is_allowed_repo(repo_url: str) -> bool:
 # ----------------------------------------------------------------------------
 @celery.task(bind=True)
 def clone_and_ingest(self, repo_url: str):
+    """
+    Clone and ingest a repository as a background task.
+    
+    This task:
+    1. Validates the repository URL
+    2. Creates a temporary directory for cloning
+    3. Clones the repository
+    4. Ingests the repository code
+    5. Cleans up temporary files
+    
+    Args:
+        self: Celery task instance
+        repo_url (str): URL of the Git repository to clone
+        
+    Returns:
+        dict: Information about the ingested repository
+        
+    Raises:
+        ValueError: If the repository domain is not allowed
+        RuntimeError: If the Git clone operation fails
+    """
     if not is_allowed_repo(repo_url):
         raise ValueError(f"Domain not allowed: {repo_url}")
     tmpdir = tempfile.mkdtemp(dir=CLONE_BASE_DIR)
@@ -238,6 +338,42 @@ def clone_and_ingest(self, repo_url: str):
 # ----------------------------------------------------------------------------
 @app.route("/api/clone", methods=["POST"])
 def enqueue_clone():
+    """
+    Enqueue a repository cloning and ingestion task.
+    
+    ---
+    tags:
+      - Repository Management
+    parameters:
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          required:
+            - repo_url
+          properties:
+            repo_url:
+              type: string
+              description: URL of the Git repository to clone
+    responses:
+      202:
+        description: Task successfully enqueued
+        schema:
+          type: object
+          properties:
+            job_id:
+              type: string
+              description: ID of the asynchronous task
+      400:
+        description: Invalid request parameters or unsupported domain
+        schema:
+          type: object
+          properties:
+            error:
+              type: string
+              description: Error message
+    """
     data = request.get_json() or {}
     url = data.get("repo_url")
     if not url:
@@ -248,28 +384,128 @@ def enqueue_clone():
     return jsonify({"job_id": job.id}), 202
 
 
-@app.route("/api/status/<job_id>", methods=["GET"])
+@app.route("/api/job/<job_id>", methods=["GET"])
 def job_status(job_id):
-    job = celery.AsyncResult(job_id)
-    if job is None:
-        return jsonify({"error": "Unknown job"}), 404
-    return jsonify(
-        {
-            "status": job.status,
-            "result": job.result if job.successful() else None,
-            "error": str(job.result) if job.failed() else None,
-        }
-    )
+    """
+    Check the status of an asynchronous job.
+    
+    This endpoint queries the Celery backend for the status of a previously
+    submitted task and returns details about its progress or results.
+    
+    ---
+    tags:
+      - Task Management
+    parameters:
+      - in: path
+        name: job_id
+        required: true
+        type: string
+        description: The ID of the job to check
+    responses:
+      200:
+        description: Job status information
+        schema:
+          type: object
+          properties:
+            status:
+              type: string
+              description: Current status of the job (PENDING, STARTED, SUCCESS, FAILURE)
+            result:
+              type: object
+              description: Result data if the job completed successfully
+            error:
+              type: string
+              description: Error message if the job failed
+      404:
+        description: Job not found
+        schema:
+          type: object
+          properties:
+            error:
+              type: string
+              description: Error message
+    """
+    task = clone_and_ingest.AsyncResult(job_id)
+    if not task:
+        return jsonify({"error": "Job not found"}), 404
+
+    if task.state == "PENDING":
+        response = {"status": "PENDING", "message": "Job is pending."}
+    elif task.state == "FAILURE":
+        response = {"status": "FAILURE", "error": str(task.info)}
+    elif task.state == "SUCCESS":
+        response = {"status": "SUCCESS", "result": task.get()}
+    else:  # STARTED or other states
+        response = {"status": task.state, "message": "Job is in progress."}
+
+    return jsonify(response)
 
 
 @app.route("/api/chat", methods=["POST"])
 def chat_endpoint():
-    data = request.get_json() or {}
+    """
+    Answer a question about the repository's code.
+    
+    This endpoint accepts a user message, processes it through the ChatCore,
+    and returns a response generated by the language model based on relevant
+    documentation from the repository.
+    
+    ---
+    tags:
+      - Chat
+    parameters:
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          required:
+            - message
+          properties:
+            message:
+              type: string
+              description: User's question about the repository
+    responses:
+      200:
+        description: Successful response
+        schema:
+          type: object
+          properties:
+            response:
+              type: string
+              description: AI-generated answer to the user's question
+      400:
+        description: Invalid request parameters
+        schema:
+          type: object
+          properties:
+            error:
+              type: string
+              description: Error message
+      500:
+        description: Server error
+        schema:
+          type: object
+          properties:
+            error:
+              type: string
+              description: Error message
+    """
+    data = request.json or {}
     msg = data.get("message", "")
     if not msg:
-        return jsonify({"error": "Missing message"}), 400
-    return jsonify({"response": core.answer(msg)})
+        return jsonify({"error": "Message is required"}), 400
+    try:
+        resp = core.answer(msg)
+        return jsonify({"response": resp})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)), debug=False)
+    if len(sys.argv) > 1 and sys.argv[1] == "--worker":
+        # This won't actually execute; needs to be run via 'celery -A tmp_chat.celery worker'
+        pass
+    else:
+        # Run the Flask app
+        app.run(debug=True, port=5001)
