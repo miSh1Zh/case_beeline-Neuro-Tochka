@@ -7,7 +7,7 @@ from rank_bm25 import BM25Okapi
 
 
 class HybridStore:
-    def __init__(self, dim: int, index_path="faiss.index", meta_path="meta.pkl"):
+    def __init__(self, dim: int, index_path="index.faiss", meta_path="meta.pkl"):
         self.dim = dim
         self.index_path = index_path
         self.meta_path = meta_path

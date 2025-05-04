@@ -232,7 +232,14 @@ export const Chat = () => {
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ message: inputValue }),
+
+          body: JSON.stringify({
+            message: userMessage,
+            history: messages.map(msg => ({
+              role: msg.isUser ? 'user' : 'assistant',
+              content: msg.text
+            }))
+          }),
         });
 
         if (!response.ok) {
@@ -243,9 +250,10 @@ export const Chat = () => {
         setMessages(prev => [...prev, { text: data.response, isUser: false }]);
       } catch (error) {
         console.error('Error:', error);
-        setMessages(prev => [...prev, { 
-          text: "Извините, произошла ошибка при отправке сообщения. Пожалуйста, попробуйте еще раз.", 
-          isUser: false 
+
+        setMessages(prev => [...prev, {
+          text: "Извините, произошла ошибка при обработке вашего запроса. Пожалуйста, попробуйте еще раз.",
+          isUser: false
         }]);
       } finally {
         setIsLoading(false);
