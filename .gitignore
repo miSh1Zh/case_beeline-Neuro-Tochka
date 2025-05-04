@@ -27,3 +27,6 @@ build/
 
 .venv
 __pycache__
+*.index
+*.pkl
+docs/

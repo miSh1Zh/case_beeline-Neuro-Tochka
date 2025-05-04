@@ -7,6 +7,8 @@ from pathlib import Path
 
 import esprima
 import javalang
+from clang import cindex
+from clang.cindex import CursorKind
 
 
 def parse_python(src: str, path: str) -> List[Dict]:
@@ -179,6 +181,60 @@ def parse_java(src: str, path: str) -> List[Dict]:
     return docs
 
 
+def parse_c_cpp(src: str, path: str) -> List[Dict]:
+    """
+    Parse a C or C++ file and extract top-level functions, methods, classes, and structs.
+    """
+    index = cindex.Index.create()
+    # you can pass in extra args (e.g. include dirs, -std=c++17) if needed:
+    tu = index.parse(path, args=["-std=c++17"], unsaved_files=[(path, src)], options=0)
+    docs: List[Dict] = []
+    lines = src.splitlines()
+
+    def extract(node):
+        # only consider declarations in this file
+        if not node.location.file or node.location.file.name != path:
+            return
+
+        if node.kind == CursorKind.FUNCTION_DECL:
+            start, end = node.extent.start, node.extent.end
+            code = "\n".join(lines[start.line - 1 : end.line])
+            docs.append(
+                {"path": path, "name": node.spelling, "type": "function", "code": code}
+            )
+
+        elif node.kind == CursorKind.CXX_METHOD:
+            start, end = node.extent.start, node.extent.end
+            code = "\n".join(lines[start.line - 1 : end.line])
+            docs.append(
+                {
+                    "path": path,
+                    "name": f"{node.semantic_parent.spelling}.{node.spelling}",
+                    "type": "method",
+                    "code": code,
+                }
+            )
+
+        elif node.kind in (CursorKind.CLASS_DECL, CursorKind.STRUCT_DECL):
+            start, end = node.extent.start, node.extent.end
+            code = "\n".join(lines[start.line - 1 : end.line])
+            docs.append(
+                {
+                    "path": path,
+                    "name": node.spelling,
+                    "type": "class" if node.kind == CursorKind.CLASS_DECL else "struct",
+                    "code": code,
+                }
+            )
+
+        # recurse
+        for child in node.get_children():
+            extract(child)
+
+    extract(tu.cursor)
+    return docs
+
+
 # Map file extensions to their respective parser functions
 PARSERS: Dict[str, Callable[[str, str], List[Dict]]] = {
     ".py": parse_python,
@@ -187,6 +243,13 @@ PARSERS: Dict[str, Callable[[str, str], List[Dict]]] = {
     ".ts": parse_javascript,
     ".tsx": parse_javascript,
     ".java": parse_java,
+    ".c": parse_c_cpp,
+    ".cpp": parse_c_cpp,
+    ".cc": parse_c_cpp,
+    ".cxx": parse_c_cpp,
+    ".hpp": parse_c_cpp,
+    ".hh": parse_c_cpp,
+    ".h": parse_c_cpp,
 }
 
 

@@ -15,10 +15,11 @@ from flask_cors import CORS
 from git import Repo, GitCommandError
 
 load_dotenv()
+API_KEY = os.getenv("OPENAI_API_KEY")
+print("API_KEY", API_KEY)
 client = OpenAI(
     api_key=os.getenv(
         "OPENAI_API_KEY",
-        "sk-or-vv-1ab599950e30851855a477dd7c64ac93677544cb5eaf2653593e381c2976bb77",
     ),
     base_url=os.getenv("OPENAI_BASE_URL", "https://api.vsegpt.ru/v1"),
 )

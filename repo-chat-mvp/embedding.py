@@ -4,8 +4,10 @@ from dotenv import load_dotenv
 from openai import OpenAI
 
 load_dotenv()
+OPEN_AI_API_KEY = os.getenv("OPENAI_API_KEY")
+print("OPEN_AI_API_KEY", OPEN_AI_API_KEY)
 client = OpenAI(
-    api_key="sk-or-vv-1ab599950e30851855a477dd7c64ac93677544cb5eaf2653593e381c2976bb77",
+    api_key=OPEN_AI_API_KEY,
     base_url="https://api.vsegpt.ru/v1/",
 )
 
