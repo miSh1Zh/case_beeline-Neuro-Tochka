@@ -21,6 +21,7 @@ const ChatContainer = styled.div`
   position: relative;
   z-index: 1;
   min-height: 400px;
+  top: 0;
 `;
 
 const ChatHeader = styled.div`
@@ -44,6 +45,7 @@ const ChatMessages = styled.div`
   flex-direction: column;
   gap: 20px;
   min-height: 200px;
+  position: relative;
 `;
 
 const Message = styled.div`
@@ -120,9 +122,9 @@ const ChatInputContainer = styled.div`
   margin-top: 20px;
   gap: 10px;
   align-items: center;
-  position: sticky;
-  bottom: 0;
-  z-index: 2;
+  background: white;
+  border-top: 1px solid #eee;
+  position: relative;
 
   input {
     flex: 1;

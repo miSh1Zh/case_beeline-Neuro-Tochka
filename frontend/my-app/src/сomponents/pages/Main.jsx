@@ -8,9 +8,10 @@ import BeelineRobot from '../../styles/Beeline_Robot_input.png';
 import styled from 'styled-components';
 
 const RootContainer = styled.div`
-  height: 100vh;
-  overflow: hidden;
+  min-height: 100vh;
   position: relative;
+  display: flex;
+  flex-direction: column;
 `;
 
 const MainContainer = styled.div`
@@ -18,11 +19,12 @@ const MainContainer = styled.div`
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  height: calc(100vh - 60px);
+  min-height: calc(100vh - 60px);
   padding: 20px;
   background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
   box-sizing: border-box;
-  overflow: hidden;
+  position: relative;
+  z-index: 1;
 `;
 
 const RobotContainer = styled.div`
