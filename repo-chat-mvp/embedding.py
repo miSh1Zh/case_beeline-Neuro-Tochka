@@ -49,6 +49,3 @@ def embed_texts(
             }
         )
     return out
-
-
-# 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
