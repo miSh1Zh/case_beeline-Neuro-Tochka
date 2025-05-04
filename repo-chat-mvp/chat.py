@@ -3,6 +3,7 @@ import sys
 import pickle
 import hashlib
 from collections import defaultdict
+
 from dotenv import load_dotenv
 from openai import OpenAI
 from ingestion import parse_directory  # updated to support multiple languages
@@ -11,6 +12,7 @@ from vector_store import HybridStore
 from tqdm import tqdm
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+from git import Repo, GitCommandError
 
 load_dotenv()
 client = OpenAI(
@@ -169,6 +171,50 @@ class ChatCore:
         return chat.choices[0].message.content
 
 
+@app.route("/api/clone", methods=["POST"])
+def clone_repo():
+    data = request.get_json() or {}
+    repo_url = data.get("repo_url")
+    token = data.get("token")
+
+    if not repo_url:
+        return jsonify({"error": "Missing 'repo_url'"}), 400
+
+    # If token provided, inject it into the URL for HTTP(S) auth
+    auth_url = repo_url
+    if token:
+        parts = repo_url.split("://", 1)
+        if len(parts) != 2:
+            return jsonify({"error": "Invalid repo_url format"}), 400
+        scheme, path = parts
+        auth_url = f"{scheme}://{token}@{path}"
+
+    # Derive local folder name
+    repo_name = repo_url.rstrip("/").split("/")[-1]
+    if repo_name.endswith(".git"):
+        repo_name = repo_name[:-4]
+    target_path = os.path.join(os.getcwd(), repo_name)
+
+    if os.path.exists(target_path):
+        return jsonify({"error": f"Directory '{repo_name}' already exists"}), 400
+
+    try:
+        Repo.clone_from(auth_url, target_path)
+    except GitCommandError as e:
+        return jsonify({"error": "Git clone failed", "details": str(e)}), 500
+
+    return jsonify({"status": "cloned", "path": repo_name}), 200
+
+
+@app.route("/api/chat", methods=["POST"])
+def chat_endpoint():
+    data = request.json or {}
+    msg = data.get("message", "")
+    core = ChatCore()
+    resp = core.answer(msg)
+    return jsonify({"response": resp})
+
+
 def main():
     if len(sys.argv) < 2:
         print("Usage: python chat.py <repo_path> [query]")
@@ -182,15 +228,6 @@ def main():
     else:
         query = " ".join(sys.argv[2:])
         print(core.answer(query))
-
-
-@app.route("/api/chat", methods=["POST"])
-def chat_endpoint():
-    data = request.json or {}
-    msg = data.get("message", "")
-    core = ChatCore()
-    resp = core.answer(msg)
-    return jsonify({"response": resp})
 
 
 if __name__ == "__main__":
