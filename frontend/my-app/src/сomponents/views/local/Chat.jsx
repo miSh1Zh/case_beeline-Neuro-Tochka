@@ -10,18 +10,23 @@ import { motion } from 'framer-motion';
 const ChatContainer = styled.div`
   display: flex;
   flex-direction: column;
-  max-width: 1000px;
+  max-width: 1200px;
+  width: 95%;
   margin: 0 auto;
   padding: 20px;
   background: white;
   border-radius: 20px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
   margin-top: 100px;
-  margin-bottom: 50px;
+  margin-bottom: 80px;
   position: relative;
   z-index: 1;
   min-height: 400px;
-  top: 0;
+  transition: all 0.3s ease;
+
+  &:hover {
+    box-shadow: 0 15px 35px rgba(0, 0, 0, 0.15);
+  }
 `;
 
 const ChatHeader = styled.div`
@@ -30,12 +35,14 @@ const ChatHeader = styled.div`
   padding: 20px;
   border-bottom: 1px solid #eee;
   margin-bottom: 20px;
+  background: white;
+  border-radius: 15px 15px 0 0;
 `;
 
 const HeaderText = styled.div`
   font-size: 1.5rem;
-  color: #202634;
   font-weight: 600;
+  color: #202634;
 `;
 
 const ChatMessages = styled.div`
@@ -50,6 +57,7 @@ const ChatMessages = styled.div`
 
 const Message = styled.div`
   max-width: 70%;
+  min-width: 120px;
   padding: 15px 20px;
   border-radius: 15px;
   background-color: ${props => props.isUser ? '#ffd000' : '#f0f2f5'};
@@ -61,6 +69,15 @@ const Message = styled.div`
   margin-bottom: 10px;
   margin-left: ${props => props.isUser ? 'auto' : '0'};
   margin-right: ${props => props.isUser ? '0' : 'auto'};
+  transition: all 0.3s ease;
+  transform: translateY(0);
+  display: flex;
+  flex-direction: column;
+
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+  }
 
   &::before {
     content: '';
@@ -80,21 +97,25 @@ const Message = styled.div`
     border-radius: 5px;
     overflow-x: auto;
     margin: 10px 0;
+    width: 100%;
   }
 
   code {
     font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
     font-size: 0.9em;
+    white-space: pre-wrap;
   }
 
   p {
     margin: 0;
     line-height: 1.5;
+    word-break: break-word;
   }
 
   ul, ol {
     margin: 10px 0;
     padding-left: 20px;
+    width: 100%;
   }
 
   li {
@@ -104,6 +125,7 @@ const Message = styled.div`
   h1, h2, h3, h4, h5, h6 {
     margin: 15px 0 10px;
     font-weight: 600;
+    width: 100%;
   }
 
   blockquote {
@@ -111,6 +133,19 @@ const Message = styled.div`
     margin: 10px 0;
     padding-left: 15px;
     color: #666;
+    width: 100%;
+  }
+
+  @media (max-width: 768px) {
+    max-width: 85%;
+    min-width: 100px;
+    padding: 12px 16px;
+  }
+
+  @media (max-width: 480px) {
+    max-width: 90%;
+    min-width: 80px;
+    padding: 10px 14px;
   }
 `;
 
@@ -125,6 +160,7 @@ const ChatInputContainer = styled.div`
   background: white;
   border-top: 1px solid #eee;
   position: relative;
+  transition: all 0.3s ease;
 
   input {
     flex: 1;
@@ -137,6 +173,7 @@ const ChatInputContainer = styled.div`
     &:focus {
       outline: none;
       border-color: #ffd000;
+      box-shadow: 0 0 0 3px rgba(255, 208, 0, 0.1);
     }
   }
 
@@ -150,16 +187,16 @@ const ChatInputContainer = styled.div`
     font-weight: 600;
     cursor: pointer;
     transition: all 0.3s ease;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
 
     &:hover {
       background-color: #ffd900;
       transform: translateY(-2px);
+      box-shadow: 0 6px 8px rgba(0, 0, 0, 0.15);
     }
 
-    &:disabled {
-      background-color: #ccc;
-      cursor: not-allowed;
-      transform: none;
+    &:active {
+      transform: translateY(0);
     }
   }
 
