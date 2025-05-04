@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { useNavigate } from 'react-router-dom';
 import { Chat } from "../views/local/Chat";
 import { Foot } from "../views/global/Foot";
@@ -201,6 +201,58 @@ const ErrorText = styled.p`
   }
 `;
 
+const Spinner = () => (
+  <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', margin: '20px 0' }}>
+    <div style={{
+      border: '6px solid #f3f3f3',
+      borderTop: '6px solid #ffd000',
+      borderRadius: '50%',
+      width: '40px',
+      height: '40px',
+      animation: 'spin 1s linear infinite'
+    }} />
+    <style>{`
+      @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+      }
+    `}</style>
+  </div>
+);
+
+const ErrorBanner = ({ message, onRetry }) => (
+  <div style={{
+    background: '#fff3e0',
+    color: '#d84315',
+    border: '1px solid #ffd000',
+    borderRadius: '10px',
+    padding: '18px 24px',
+    margin: '20px 0',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '16px',
+    fontWeight: 500,
+    fontSize: '1.1rem',
+    boxShadow: '0 2px 8px rgba(255, 208, 0, 0.08)'
+  }}>
+    <span style={{ fontSize: '1.6rem' }}>⚠️</span>
+    <span>{message}</span>
+    {onRetry && (
+      <button onClick={onRetry} style={{
+        marginLeft: 'auto',
+        background: '#ffd000',
+        color: '#202634',
+        border: 'none',
+        borderRadius: '6px',
+        padding: '8px 18px',
+        fontWeight: 600,
+        cursor: 'pointer',
+        transition: 'background 0.2s',
+      }}>Повторить</button>
+    )}
+  </div>
+);
+
 export const Main = ({ isGitSubmitted, onGitSubmit, showModal, setShowModal }) => {
     const navigate = useNavigate();
     const [gitUrl, setGitUrl] = React.useState('');
@@ -209,6 +261,8 @@ export const Main = ({ isGitSubmitted, onGitSubmit, showModal, setShowModal }) =
     const [isPrivateRepo, setIsPrivateRepo] = React.useState(false);
     const [isUrlValid, setIsUrlValid] = React.useState(false);
     const [isBranchValid, setIsBranchValid] = React.useState(true);
+    const [isCheckingChat, setIsCheckingChat] = useState(false);
+    const [chatError, setChatError] = useState('');
 
     const validateUrl = (url) => {
         const gitUrlRegex = /^(https?:\/\/)?(www\.)?github\.com\/[a-zA-Z0-9-]+\/[a-zA-Z0-9-_.]+(?:\/)?$/;
@@ -238,33 +292,38 @@ export const Main = ({ isGitSubmitted, onGitSubmit, showModal, setShowModal }) =
 
     const validation = async () => {
         if (isUrlValid && isBranchValid) {
-            try {
-                // TODO: Uncomment when backend is ready
-                /*
-                const response = await fetch('http://localhost:5001/api/clone', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        repo_url: gitUrl,
-                        branch: branchName,
-                        token: isPrivateRepo ? token : 'None'
-                    }),
-                });
+            setIsCheckingChat(true);
+            setChatError('');
+            // try {
+            //     const response = await fetch('http://localhost:5001/api/clone', {
+            //         method: 'POST',
+            //         headers: {
+            //             'Content-Type': 'application/json',
+            //         },
+            //         body: JSON.stringify({
+            //             repo_url: gitUrl,
+            //             branch: branchName,
+            //             token: isPrivateRepo ? token : 'None'
+            //         }),
+            //     });
 
-                if (!response.ok) {
-                    throw new Error('Network response was not ok');
-                }
+            //     if (!response.ok) {
+            //         throw new Error('Network response was not ok');
+            //     }
 
-                const data = await response.json();
-                */
-                setShowModal(true);
-                setGitUrl('');
-                onGitSubmit();
-            } catch (error) {
-                console.error('Error:', error);
-            }
+            //     const data = await response.json();
+            //     setShowModal(true);
+            //     setGitUrl('');
+            //     onGitSubmit();
+            // } catch (error) {
+            //     console.error('Error:', error);
+            //     setChatError('Ошибка соединения с сервером');
+            // } finally {
+            //     setIsCheckingChat(false);
+            // }
+            setShowModal(true);
+            setGitUrl('');
+            onGitSubmit();
         }
     };
 
@@ -330,13 +389,16 @@ export const Main = ({ isGitSubmitted, onGitSubmit, showModal, setShowModal }) =
                                 Приватный репозиторий
                             </CheckboxLabel>
                             {isPrivateRepo && (
-                                <InputComponent 
-                                    inputValue={token} 
-                                    action={handleTokenChange} 
-                                    placeholder={"Введите токен доступа"} 
-                                    maxLength={100}
-                                    type="password"
-                                />
+                                <>
+                                    <Label>Введите токен доступа</Label>
+                                    <InputComponent 
+                                        inputValue={token} 
+                                        action={handleTokenChange} 
+                                        placeholder={"None"} 
+                                        maxLength={100}
+                                        type="password"
+                                    />
+                                </>
                             )}
                         </InputGroup>
 
@@ -367,6 +429,9 @@ export const Main = ({ isGitSubmitted, onGitSubmit, showModal, setShowModal }) =
                     </css.ModalContent>
                 </css.ModalOverlay>
             )}
+
+            {isCheckingChat && <Spinner />}
+            {chatError && <ErrorBanner message={chatError} onRetry={validation} />}
 
             <Foot />
         </RootContainer>

@@ -1,53 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { css } from '../../../styles/styles.css';
 import ReactMarkdown from 'react-markdown';
 import rehypeHighlight from 'rehype-highlight';
 import 'highlight.js/styles/github.css';
-
-// Моковые данные для демонстрации
-const mockTree = {
-  name: 'docs',
-  type: 'directory',
-  children: [
-    {
-      name: 'API.md',
-      type: 'file',
-      path: 'docs/API.md'
-    },
-    {
-      name: 'database',
-      type: 'directory',
-      children: [
-        {
-          name: 'models.md',
-          type: 'file',
-          path: 'docs/database/models.md'
-        },
-        {
-          name: 'queries.md',
-          type: 'file',
-          path: 'docs/database/queries.md'
-        }
-      ]
-    },
-    {
-      name: 'setup',
-      type: 'directory',
-      children: [
-        {
-          name: 'linux.md',
-          type: 'file',
-          path: 'docs/setup/linux.md'
-        },
-        {
-          name: 'docker.md',
-          type: 'file',
-          path: 'docs/setup/docker.md'
-        }
-      ]
-    }
-  ]
-};
 
 const TreeNode = ({ node, level = 0, onFileClick }) => {
   const [isExpanded, setIsExpanded] = useState(false);
@@ -100,20 +55,27 @@ const TreeNode = ({ node, level = 0, onFileClick }) => {
 };
 
 export const DocumentationTree = () => {
+  const [tree, setTree] = useState(null);
   const [selectedFile, setSelectedFile] = useState(null);
   const [fileContent, setFileContent] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    fetch('http://localhost:5001/api/documentation/tree')
+      .then(res => res.json())
+      .then(data => setTree(data))
+      .catch(() => setTree(null));
+  }, []);
 
   const handleFileClick = async (path) => {
     setSelectedFile(path);
     setIsLoading(true);
     try {
-      const response = await fetch(`http://localhost:5000/api/documentation/${encodeURIComponent(path)}`);
+      const response = await fetch(`http://localhost:5001/api/documentation/${encodeURIComponent(path)}`);
       if (!response.ok) throw new Error('Failed to fetch file content');
       const content = await response.text();
       setFileContent(content);
     } catch (error) {
-      console.error('Error fetching file content:', error);
       setFileContent('Ошибка при загрузке содержимого файла');
     } finally {
       setIsLoading(false);
@@ -123,7 +85,11 @@ export const DocumentationTree = () => {
   return (
     <css.DocumentationContainer>
       <css.TreeContainer>
-        <TreeNode node={mockTree} onFileClick={handleFileClick} />
+        {tree ? (
+          <TreeNode node={tree} onFileClick={handleFileClick} />
+        ) : (
+          <div>Загрузка дерева...</div>
+        )}
       </css.TreeContainer>
       <css.ContentContainer>
         {isLoading ? (
