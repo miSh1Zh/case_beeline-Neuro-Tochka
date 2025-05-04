@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="icon" href="%PUBLIC_URL%/favicon.ico" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#000000" />
+    <meta
+      name="description"
+      content="Web site created using create-react-app"
+    />
+    <link rel="apple-touch-icon" href="%PUBLIC_URL%/logo192.png" />
+
+    <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
+
+    <title>Stepic App</title>
+
+  <style>
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      transition: all 300ms;
+    }
+
+    body{
+      margin: 0;
+      padding: 0;
+      font-family: 'Roboto', sans-serif;
+      background-color: #eeecec;
+     } 
+
+    * {
+       box-sizing: border-box; transition: all 300ms;
+    }
+  
+
+     header { display: flex; flex-direction: row; align-items: center; justify-content: space-between; width: 100%;
+      height: 80px; background-color: #202634; box-shadow: 0px 0px 4px grey; padding: 0 40px;
+     }
+
+     div.Logo { font-size: 26px; color:  #9CFF00; }
+
+     div.buttons-container { display: flex; flex-direction: row; justify-content:flex-end;}
+
+     button { background-color: #faf7f7;; display: block; padding: 12px 20px 13px; cursor: pointer; margin-right: 10px; border-radius: 6px; border: none;}
+
+     button:hover { background-color: #9CFF00;}
+
+     div.feedback {display: flex; flex-direction: column; align-items:flex-start; justify-content: flex-start; cursor: pointer;}
+
+     div.feedback span:first-child {display: block; color:  #E5E5E5; margin-bottom: 6px; margin-top: 6px;}
+
+     div.feedback span:last-child {display: block; background-color: #9CFF00; height: 2.4px; width: 0px; border-radius: 2px;}
+
+     div.feedback:hover span:last-child {width: calc(100% + 2px); }
+
+     div.form {display: flex; flex-direction: column; align-items: center; justify-content: flex-start; width: 500px;
+    min-height: 60px; box-shadow: 0px 0px 4px grey; border-radius: 8px; padding: 30px; margin: 40px auto; gap: 20px;}
+
+    .form-input {
+      width: 400px;
+      height: 40px;
+      border-radius: 8px;
+      border-color: white;
+      font-size: 15px;
+      
+    }
+
+  </style>
+
+  </head>
+  <body>
+
+    <div id="root"></div>
+    
+  </body>
+</html>
