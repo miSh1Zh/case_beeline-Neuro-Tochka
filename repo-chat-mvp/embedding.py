@@ -17,23 +17,23 @@ def embed_texts(
 ) -> list[dict]:
     """
     Batch-embed a list of text chunks using the OpenAI embedding API.
-    
+
     This function sends texts to the OpenAI API to generate vector embeddings for each chunk.
     The embeddings can be used for semantic search and similarity comparisons.
-    
+
     Args:
         texts (list[dict]): List of dictionaries, each containing 'path' and 'chunk' keys.
             path: The file path or identifier for the text.
             chunk: The actual text content to be embedded.
-        model (str, optional): The embedding model to use. 
+        model (str, optional): The embedding model to use.
             Defaults to "emb-openai/text-embedding-3-small".
-    
+
     Returns:
         list[dict]: The same list of dictionaries with 'vector' field added to each item.
             path: Original path/identifier.
             chunk: Original text chunk.
             vector: The embedding vector from the API.
-    
+
     Raises:
         Exception: If the OpenAI API request fails.
     """
@@ -49,3 +49,6 @@ def embed_texts(
             }
         )
     return out
+
+
+# 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

@@ -202,173 +202,170 @@ const ErrorText = styled.p`
 `;
 
 export const Main = ({ isGitSubmitted, onGitSubmit, showModal, setShowModal }) => {
-    const navigate = useNavigate();
-    const [gitUrl, setGitUrl] = React.useState('');
-    const [branchName, setBranchName] = React.useState('main');
-    const [token, setToken] = React.useState('None');
-    const [isPrivateRepo, setIsPrivateRepo] = React.useState(false);
-    const [isUrlValid, setIsUrlValid] = React.useState(false);
-    const [isBranchValid, setIsBranchValid] = React.useState(true);
+  const navigate = useNavigate();
+  const [gitUrl, setGitUrl] = React.useState('');
+  const [branchName, setBranchName] = React.useState('main');
+  const [token, setToken] = React.useState('None');
+  const [isPrivateRepo, setIsPrivateRepo] = React.useState(false);
+  const [isUrlValid, setIsUrlValid] = React.useState(false);
+  const [isBranchValid, setIsBranchValid] = React.useState(true);
 
-    const validateUrl = (url) => {
-        const gitUrlRegex = /^(https?:\/\/)?(www\.)?github\.com\/[a-zA-Z0-9-]+\/[a-zA-Z0-9-_.]+(?:\/)?$/;
-        return gitUrlRegex.test(url);
-    };
+  const validateUrl = (url) => {
+    const gitUrlRegex = /^(https?:\/\/)?(www\.)?github\.com\/[a-zA-Z0-9-]+\/[a-zA-Z0-9-_.]+(?:\/)?$/;
+    return gitUrlRegex.test(url);
+  };
 
-    const handleUrlChange = (value) => {
-        setGitUrl(value);
-        setIsUrlValid(validateUrl(value));
-    };
+  const handleUrlChange = (value) => {
+    setGitUrl(value);
+    setIsUrlValid(validateUrl(value));
+  };
 
-    const handleBranchChange = (value) => {
-        setBranchName(value);
-        setIsBranchValid(value.length > 0);
-    };
+  const handleBranchChange = (value) => {
+    setBranchName(value);
+    setIsBranchValid(value.length > 0);
+  };
 
-    const handleTokenChange = (value) => {
-        setToken(value);
-    };
+  const handleTokenChange = (value) => {
+    setToken(value);
+  };
 
-    const handlePrivateRepoChange = (e) => {
-        setIsPrivateRepo(e.target.checked);
-        if (!e.target.checked) {
-            setToken('None');
+  const handlePrivateRepoChange = (e) => {
+    setIsPrivateRepo(e.target.checked);
+    if (!e.target.checked) {
+      setToken('None');
+    }
+  };
+
+  const validation = async () => {
+    if (isUrlValid && isBranchValid) {
+      try {
+        const response = await fetch('http://localhost:5001/api/clone', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            repo_url: gitUrl,
+            branch: branchName,
+            token: isPrivateRepo ? token : 'None'
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error('Network response was not ok');
         }
-    };
 
-    const validation = async () => {
-        if (isUrlValid && isBranchValid) {
-            try {
-                // TODO: Uncomment when backend is ready
-                /*
-                const response = await fetch('http://localhost:5001/api/clone', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        repo_url: gitUrl,
-                        branch: branchName,
-                        token: isPrivateRepo ? token : 'None'
-                    }),
-                });
+        const data = await response.json();
+        setShowModal(true);
+        setGitUrl('');
+        onGitSubmit();
+      } catch (error) {
+        console.error('Error:', error);
+      }
+    }
+  };
 
-                if (!response.ok) {
-                    throw new Error('Network response was not ok');
-                }
+  return (
+    <RootContainer isGitSubmitted={isGitSubmitted}>
+      {!isGitSubmitted && (
+        <MainContainer>
+          <RobotContainer>
+            <img
+              src={BeelineRobot}
+              alt="Beeline Robot"
+              style={{
+                height: '150px',
+                width: 'auto',
+                filter: 'drop-shadow(0 10px 20px rgba(0, 0, 0, 0.1))'
+              }}
+            />
+          </RobotContainer>
 
-                const data = await response.json();
-                */
-                setShowModal(true);
-                setGitUrl('');
-                onGitSubmit();
-            } catch (error) {
-                console.error('Error:', error);
-            }
-        }
-    };
+          <WelcomeText>Добро пожаловать в CodeManager!</WelcomeText>
+          <SubText>
+            Введите URL вашего GitHub репозитория и выберите ветку, чтобы начать анализ кода
+          </SubText>
 
-    return(
-        <RootContainer isGitSubmitted={isGitSubmitted}>
-            {!isGitSubmitted && (
-                <MainContainer>
-                    <RobotContainer>
-                        <img 
-                            src={BeelineRobot}
-                            alt="Beeline Robot" 
-                            style={{ 
-                                height: '150px',
-                                width: 'auto',
-                                filter: 'drop-shadow(0 10px 20px rgba(0, 0, 0, 0.1))'
-                            }} 
-                        />
-                    </RobotContainer>
-                    
-                    <WelcomeText>Добро пожаловать в CodeManager!</WelcomeText>
-                    <SubText>
-                        Введите URL вашего GitHub репозитория и выберите ветку, чтобы начать анализ кода
-                    </SubText>
+          <FormWrapper>
+            <InputGroup>
+              <Label>URL GitHub репозитория</Label>
+              <InputComponent
+                inputValue={gitUrl}
+                action={handleUrlChange}
+                placeholder={"https://github.com/username/repository"}
+                maxLength={100}
+              />
+              {gitUrl && !isUrlValid && (
+                <ErrorText>
+                  Пожалуйста, введите корректный URL GitHub репозитория
+                </ErrorText>
+              )}
+            </InputGroup>
 
-                    <FormWrapper>
-                        <InputGroup>
-                            <Label>URL GitHub репозитория</Label>
-                            <InputComponent 
-                                inputValue={gitUrl} 
-                                action={handleUrlChange} 
-                                placeholder={"https://github.com/username/repository"} 
-                                maxLength={100}
-                            />
-                            {gitUrl && !isUrlValid && (
-                                <ErrorText>
-                                    Пожалуйста, введите корректный URL GitHub репозитория
-                                </ErrorText>
-                            )}
-                        </InputGroup>
+            <InputGroup>
+              <Label>Название ветки</Label>
+              <InputComponent
+                inputValue={branchName}
+                action={handleBranchChange}
+                placeholder={"main"}
+                maxLength={50}
+              />
+              {!isBranchValid && (
+                <ErrorText>
+                  Пожалуйста, введите название ветки
+                </ErrorText>
+              )}
+            </InputGroup>
 
-                        <InputGroup>
-                            <Label>Название ветки</Label>
-                            <InputComponent 
-                                inputValue={branchName} 
-                                action={handleBranchChange} 
-                                placeholder={"main"} 
-                                maxLength={50}
-                            />
-                            {!isBranchValid && (
-                                <ErrorText>
-                                    Пожалуйста, введите название ветки
-                                </ErrorText>
-                            )}
-                        </InputGroup>
+            <InputGroup>
+              <CheckboxLabel>
+                <input
+                  type="checkbox"
+                  checked={isPrivateRepo}
+                  onChange={handlePrivateRepoChange}
+                />
+                Приватный репозиторий
+              </CheckboxLabel>
+              {isPrivateRepo && (
+                <InputComponent
+                  inputValue={token}
+                  action={handleTokenChange}
+                  placeholder={"Введите токен доступа"}
+                  maxLength={100}
+                  type="password"
+                />
+              )}
+            </InputGroup>
 
-                        <InputGroup>
-                            <CheckboxLabel>
-                                <input 
-                                    type="checkbox" 
-                                    checked={isPrivateRepo}
-                                    onChange={handlePrivateRepoChange}
-                                />
-                                Приватный репозиторий
-                            </CheckboxLabel>
-                            {isPrivateRepo && (
-                                <InputComponent 
-                                    inputValue={token} 
-                                    action={handleTokenChange} 
-                                    placeholder={"Введите токен доступа"} 
-                                    maxLength={100}
-                                    type="password"
-                                />
-                            )}
-                        </InputGroup>
+            <SubmitButton
+              onClick={validation}
+              disabled={!isUrlValid || !isBranchValid}
+            >
+              Начать анализ
+            </SubmitButton>
+          </FormWrapper>
+        </MainContainer>
+      )}
 
-                        <SubmitButton 
-                            onClick={validation}
-                            disabled={!isUrlValid || !isBranchValid}
-                        >
-                            Начать анализ
-                        </SubmitButton>
-                    </FormWrapper>
-                </MainContainer>
-            )}
-            
-            {isGitSubmitted && <Chat />}
+      {isGitSubmitted && <Chat />}
 
-            {showModal && (
-                <css.ModalOverlay>
-                    <css.ModalContent>
-                        <css.ModalTitle>Успешно!</css.ModalTitle>
-                        <css.ModalText>
-                            Архитектура проекта и документация были успешно сгенерированы и отправлены на страницу архитектуры.
-                        </css.ModalText>
-                        <css.ModalButton onClick={() => {
-                            setShowModal(false);
-                        }}>
-                            Перейти к чату
-                        </css.ModalButton>
-                    </css.ModalContent>
-                </css.ModalOverlay>
-            )}
+      {showModal && (
+        <css.ModalOverlay>
+          <css.ModalContent>
+            <css.ModalTitle>Успешно!</css.ModalTitle>
+            <css.ModalText>
+              Архитектура проекта и документация были успешно сгенерированы и отправлены на страницу архитектуры.
+            </css.ModalText>
+            <css.ModalButton onClick={() => {
+              setShowModal(false);
+            }}>
+              Перейти к чату
+            </css.ModalButton>
+          </css.ModalContent>
+        </css.ModalOverlay>
+      )}
 
-            <Foot />
-        </RootContainer>
-    )
+      <Foot />
+    </RootContainer>
+  )
 }
