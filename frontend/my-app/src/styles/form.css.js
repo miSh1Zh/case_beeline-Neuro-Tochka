@@ -147,19 +147,21 @@ export const css = {
 
     `,
     Message: styled.div`
+    padding: 8px 12px;
+    margin: 5px 0;
+    border-radius: 18px;
+    font-size: 18px;
+    max-width: 70%;
+    word-wrap: break-word;
     
-        padding: 8px 12px;
-        margin: 5px 0;
-        border-radius: 18px;
-        font-size: 18px;
-
-        max-width: 70%;
-        word-wrap: break-word;
-        
-        background-color: ${props => props.isUser ? 'rgba(255, 208, 0, 0.79)' : '#e9e9e9'};
-        color: ${props => props.isUser ? 'black' : 'black'};
-        align-self: ${props => props.isUser ? 'flex-end' : 'flex-start'};
-    `,
+    background-color: ${props => props.isUser ? 'rgba(255, 208, 0, 0.79)' : '#e9e9e9'};
+    color: ${props => props.isUser ? 'black' : 'black'};
+    
+    /* Добавляем эти свойства для выравнивания */
+    margin-left: ${props => props.isUser ? 'auto' : '0'};
+    margin-right: ${props => props.isUser ? '0' : 'auto'};
+    text-align: ${props => props.isUser ? 'right' : 'left'};
+`,
     ChatInputContainer: styled.div`
         display: flex;
         padding: 10px;

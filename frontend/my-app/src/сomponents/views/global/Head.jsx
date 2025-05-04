@@ -1,5 +1,5 @@
 import React from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { css } from '../../../styles/styles.css';
 import BeelineLogo from '../../../styles/Beeline_logo.png';
 
@@ -21,7 +21,15 @@ const logoContainerStyle = {
 
 export const Head = ({ isGitSubmitted, setIsGitSubmitted, showModal, setShowModal }) => {
     const navigate = useNavigate();
+    const location = useLocation();
     const [showNewProjectModal, setShowNewProjectModal] = React.useState(false);
+
+    const getCurrentPage = () => {
+        const path = location.pathname;
+        if (path === '/main' || path === '/') return 'Главная';
+        if (path.startsWith('/stat/')) return 'Архитектура';
+        return '';
+    };
 
     const confirmNewProject = () => {
         setShowNewProjectModal(false);
@@ -47,16 +55,36 @@ export const Head = ({ isGitSubmitted, setIsGitSubmitted, showModal, setShowModa
                 </div>
                 <css.HeaderCSS.MenuContainer>
                     {isGitSubmitted && (
-                    <css.ModalButton 
-                        onClick={() => setShowNewProjectModal(true)} 
-                        style={{buttonCSS, backgroundColor:'#ffd000', fontSize: '16px', width: '90px', marginRight: '15px'}}
-                    >
-                        + Git
-                    </css.ModalButton> 
+                        <css.ModalButton 
+                            onClick={() => setShowNewProjectModal(true)} 
+                            style={{buttonCSS, backgroundColor:'#ffd000', fontSize: '16px', width: '90px', marginRight: '15px'}}
+                        >
+                            + Git
+                        </css.ModalButton> 
                     )}
-                    <css.ModalButton  onClick={() => navigate('/main')} style={{buttonCSS, marginRight: '15px'}}>Главная</css.ModalButton> 
                     {isGitSubmitted && (
-                        <css.ModalButton onClick={() => navigate('/stat/расход')} style={{buttonCSS , marginRight: '15px'}}>
+                        <css.ModalButton 
+                            onClick={() => navigate('/main')} 
+                            style={{
+                                ...buttonCSS,
+                                marginRight: '15px',
+                                backgroundColor: getCurrentPage() === 'Главная' ? '#202634' : '#ffd000',
+                                color: getCurrentPage() === 'Главная' ? '#ffd000' : '#202634'
+                            }}
+                        >
+                            Главная
+                        </css.ModalButton> 
+                    )}
+                    {isGitSubmitted && (
+                        <css.ModalButton 
+                            onClick={() => navigate('/stat/расход')} 
+                            style={{
+                                ...buttonCSS,
+                                marginRight: '15px',
+                                backgroundColor: getCurrentPage() === 'Архитектура' ? '#202634' : '#ffd000',
+                                color: getCurrentPage() === 'Архитектура' ? '#ffd000' : '#202634'
+                            }}
+                        >
                             Архитектура
                         </css.ModalButton> 
                     )}
