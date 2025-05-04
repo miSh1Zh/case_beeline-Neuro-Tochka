@@ -29,12 +29,12 @@ export const Chat = () => {
       setIsLoading(true);
 
       try {
-        const response = await fetch('http://localhost:5000/api/chat', {
+        const response = await fetch('http://localhost:5001/api/chat', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ 
+          body: JSON.stringify({
             message: userMessage,
             history: messages.map(msg => ({
               role: msg.isUser ? 'user' : 'assistant',
@@ -51,9 +51,9 @@ export const Chat = () => {
         setMessages(prev => [...prev, { text: data.response, isUser: false }]);
       } catch (error) {
         console.error('Error:', error);
-        setMessages(prev => [...prev, { 
-          text: "Извините, произошла ошибка при обработке вашего запроса. Пожалуйста, попробуйте еще раз.", 
-          isUser: false 
+        setMessages(prev => [...prev, {
+          text: "Извините, произошла ошибка при обработке вашего запроса. Пожалуйста, попробуйте еще раз.",
+          isUser: false
         }]);
       } finally {
         setIsLoading(false);
@@ -76,22 +76,22 @@ export const Chat = () => {
 
   return (
     <>
-      <img 
+      <img
         src={BeelineRobot}
-        alt="Beeline Robot" 
-        style={{ 
+        alt="Beeline Robot"
+        style={{
           height: '115px',
-          width: 'auto', 
+          width: 'auto',
           marginLeft: '1100px',
           paddingBottom: '0px',
           marginTop: '56px'
-        }} 
+        }}
       />
       <css.ChatContainer>
         <css.ChatMessages>
           {messages.map((msg, index) => (
-            <div 
-              key={index} 
+            <div
+              key={index}
               style={{
                 display: 'flex',
                 justifyContent: msg.isUser ? 'flex-end' : 'flex-start',
@@ -113,7 +113,7 @@ export const Chat = () => {
           )}
           <div ref={messagesEndRef} />
         </css.ChatMessages>
-        
+
         <css.ChatInputContainer>
           <input
             type="text"
@@ -123,18 +123,18 @@ export const Chat = () => {
             placeholder="Введите ваше сообщение..."
             disabled={isLoading}
           />
-          <button 
+          <button
             onClick={handleSendMessage}
             disabled={isLoading || !inputValue.trim()}
           >
             {isLoading ? 'Отправка...' : 'Отправить'}
           </button>
-          <button 
-            className="delete-button" 
+          <button
+            className="delete-button"
             onClick={handleDeleteHistory}
             disabled={isLoading}
           >
-            <img src={DeleteIcon} style={{height: '25px', width: 'auto', marginLeft: '0px'}} alt="Delete" />
+            <img src={DeleteIcon} style={{ height: '25px', width: 'auto', marginLeft: '0px' }} alt="Delete" />
           </button>
         </css.ChatInputContainer>
       </css.ChatContainer>
