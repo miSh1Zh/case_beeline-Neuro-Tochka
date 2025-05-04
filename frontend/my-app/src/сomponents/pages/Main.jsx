@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { useNavigate } from 'react-router-dom';
 import { Chat } from "../views/local/Chat";
 import { Foot } from "../views/global/Foot";
@@ -201,7 +201,243 @@ const ErrorText = styled.p`
   }
 `;
 
+const Spinner = () => (
+  <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', margin: '20px 0' }}>
+    <div style={{
+      border: '6px solid #f3f3f3',
+      borderTop: '6px solid #ffd000',
+      borderRadius: '50%',
+      width: '40px',
+      height: '40px',
+      animation: 'spin 1s linear infinite'
+    }} />
+    <style>{`
+      @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+      }
+    `}</style>
+  </div>
+);
+
+const ErrorBanner = ({ message, onRetry }) => (
+  <div style={{
+    background: '#fff3e0',
+    color: '#d84315',
+    border: '1px solid #ffd000',
+    borderRadius: '10px',
+    padding: '18px 24px',
+    margin: '20px 0',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '16px',
+    fontWeight: 500,
+    fontSize: '1.1rem',
+    boxShadow: '0 2px 8px rgba(255, 208, 0, 0.08)'
+  }}>
+    <span style={{ fontSize: '1.6rem' }}>⚠️</span>
+    <span>{message}</span>
+    {onRetry && (
+      <button onClick={onRetry} style={{
+        marginLeft: 'auto',
+        background: '#ffd000',
+        color: '#202634',
+        border: 'none',
+        borderRadius: '6px',
+        padding: '8px 18px',
+        fontWeight: 600,
+        cursor: 'pointer',
+        transition: 'background 0.2s',
+      }}>Повторить</button>
+    )}
+  </div>
+);
+
 export const Main = ({ isGitSubmitted, onGitSubmit, showModal, setShowModal }) => {
+
+    const navigate = useNavigate();
+    const [gitUrl, setGitUrl] = React.useState('');
+    const [branchName, setBranchName] = React.useState('main');
+    const [token, setToken] = React.useState('None');
+    const [isPrivateRepo, setIsPrivateRepo] = React.useState(false);
+    const [isUrlValid, setIsUrlValid] = React.useState(false);
+    const [isBranchValid, setIsBranchValid] = React.useState(true);
+    const [isCheckingChat, setIsCheckingChat] = useState(false);
+    const [chatError, setChatError] = useState('');
+
+    const validateUrl = (url) => {
+        const gitUrlRegex = /^(https?:\/\/)?(www\.)?github\.com\/[a-zA-Z0-9-]+\/[a-zA-Z0-9-_.]+(?:\/)?$/;
+        return gitUrlRegex.test(url);
+    };
+
+    const handleUrlChange = (value) => {
+        setGitUrl(value);
+        setIsUrlValid(validateUrl(value));
+    };
+
+    const handleBranchChange = (value) => {
+        setBranchName(value);
+        setIsBranchValid(value.length > 0);
+    };
+
+    const handleTokenChange = (value) => {
+        setToken(value);
+    };
+
+    const handlePrivateRepoChange = (e) => {
+        setIsPrivateRepo(e.target.checked);
+        if (!e.target.checked) {
+            setToken('None');
+        }
+    };
+
+    const validation = async () => {
+        if (isUrlValid && isBranchValid) {
+            setIsCheckingChat(true);
+            setChatError('');
+            // try {
+            //     const response = await fetch('http://localhost:5001/api/clone', {
+            //         method: 'POST',
+            //         headers: {
+            //             'Content-Type': 'application/json',
+            //         },
+            //         body: JSON.stringify({
+            //             repo_url: gitUrl,
+            //             branch: branchName,
+            //             token: isPrivateRepo ? token : 'None'
+            //         }),
+            //     });
+
+            //     if (!response.ok) {
+            //         throw new Error('Network response was not ok');
+            //     }
+
+            //     const data = await response.json();
+            //     setShowModal(true);
+            //     setGitUrl('');
+            //     onGitSubmit();
+            // } catch (error) {
+            //     console.error('Error:', error);
+            //     setChatError('Ошибка соединения с сервером');
+            // } finally {
+            //     setIsCheckingChat(false);
+            // }
+            setShowModal(true);
+            setGitUrl('');
+            onGitSubmit();
+        }
+    };
+
+    return(
+        <RootContainer isGitSubmitted={isGitSubmitted}>
+            {!isGitSubmitted && (
+                <MainContainer>
+                    <RobotContainer>
+                        <img 
+                            src={BeelineRobot}
+                            alt="Beeline Robot" 
+                            style={{ 
+                                height: '150px',
+                                width: 'auto',
+                                filter: 'drop-shadow(0 10px 20px rgba(0, 0, 0, 0.1))'
+                            }} 
+                        />
+                    </RobotContainer>
+                    
+                    <WelcomeText>Добро пожаловать в CodeManager!</WelcomeText>
+                    <SubText>
+                        Введите URL вашего GitHub репозитория и выберите ветку, чтобы начать анализ кода
+                    </SubText>
+
+                    <FormWrapper>
+                        <InputGroup>
+                            <Label>URL GitHub репозитория</Label>
+                            <InputComponent 
+                                inputValue={gitUrl} 
+                                action={handleUrlChange} 
+                                placeholder={"https://github.com/username/repository"} 
+                                maxLength={100}
+                            />
+                            {gitUrl && !isUrlValid && (
+                                <ErrorText>
+                                    Пожалуйста, введите корректный URL GitHub репозитория
+                                </ErrorText>
+                            )}
+                        </InputGroup>
+
+                        <InputGroup>
+                            <Label>Название ветки</Label>
+                            <InputComponent 
+                                inputValue={branchName} 
+                                action={handleBranchChange} 
+                                placeholder={"main"} 
+                                maxLength={50}
+                            />
+                            {!isBranchValid && (
+                                <ErrorText>
+                                    Пожалуйста, введите название ветки
+                                </ErrorText>
+                            )}
+                        </InputGroup>
+
+                        <InputGroup>
+                            <CheckboxLabel>
+                                <input 
+                                    type="checkbox" 
+                                    checked={isPrivateRepo}
+                                    onChange={handlePrivateRepoChange}
+                                />
+                                Приватный репозиторий
+                            </CheckboxLabel>
+                            {isPrivateRepo && (
+                                <>
+                                    <Label>Введите токен доступа</Label>
+                                    <InputComponent 
+                                        inputValue={token} 
+                                        action={handleTokenChange} 
+                                        placeholder={"None"} 
+                                        maxLength={100}
+                                        type="password"
+                                    />
+                                </>
+                            )}
+                        </InputGroup>
+
+                        <SubmitButton 
+                            onClick={validation}
+                            disabled={!isUrlValid || !isBranchValid}
+                        >
+                            Начать анализ
+                        </SubmitButton>
+                    </FormWrapper>
+                </MainContainer>
+            )}
+            
+            {isGitSubmitted && <Chat />}
+
+            {showModal && (
+                <css.ModalOverlay>
+                    <css.ModalContent>
+                        <css.ModalTitle>Успешно!</css.ModalTitle>
+                        <css.ModalText>
+                            Архитектура проекта и документация были успешно сгенерированы и отправлены на страницу архитектуры.
+                        </css.ModalText>
+                        <css.ModalButton onClick={() => {
+                            setShowModal(false);
+                        }}>
+                            Перейти к чату
+                        </css.ModalButton>
+                    </css.ModalContent>
+                </css.ModalOverlay>
+            )}
+
+            {isCheckingChat && <Spinner />}
+            {chatError && <ErrorBanner message={chatError} onRetry={validation} />}
+
+            <Foot />
+        </RootContainer>
+    )
+
   const navigate = useNavigate();
   const [gitUrl, setGitUrl] = React.useState('');
   const [branchName, setBranchName] = React.useState('main');
