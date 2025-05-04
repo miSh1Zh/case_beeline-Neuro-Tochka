@@ -3,16 +3,20 @@ import { Head } from "../сomponents/views/global/Head"
 
 export const css = {
 
-    HeaderContainer: styled.header` // это поле будет компонентом
+    HeaderContainer: styled.header`
         display: flex;
         flex-direction: row;
         align-items:  center;
         justify-content: space-between;
-        position:  relative;
+        position: fixed;
+        top: 0;
+        left: 0;
         width: 100%;
         height:  80px;
         background-color: #202634;
         padding: 0px 30px;
+        z-index: 1000;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
     `,
 
     FooterContainer: styled.footer`
@@ -22,7 +26,7 @@ export const css = {
         justify-content: space-between;
         position:  relative;
         width: 100%;
-        height:  100px;
+        height:  50px;
         background-color: #E5E5E5;
         margin-top: 70px;
     `,
@@ -37,6 +41,16 @@ export const css = {
             align-items: center;
             justify-content: flex-start;
             position: relative;
+            gap: 15px;
+        `,
+        PageIndicator: styled.div`
+            color: #ffd000;
+            font-size: 18px;
+            font-weight: 500;
+            padding: 8px 15px;
+            border-radius: 6px;
+            background-color: rgba(255, 208, 0, 0.1);
+            margin-right: 20px;
         `
     },
     ModalOverlay: styled.div`
@@ -244,5 +258,42 @@ export const css = {
         font-size: 1.2rem;
         width: 100%;
         text-align: center;
+    `,
+    FinalButton: styled.button`
+        padding: 15px 30px;
+        border-radius: 12px;
+        background: linear-gradient(135deg, #000000 0%, #1a1a1a 100%);
+        color: #ffd000;
+        border: 2px solid #ffd000;
+        font-size: 18px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        box-shadow: 0 4px 15px rgba(255, 208, 0, 0.2);
+        text-transform: uppercase;
+        letter-spacing: 1px;
+
+        &:hover {
+            background: linear-gradient(135deg, #1a1a1a 0%, #000000 100%);
+            box-shadow: 0 6px 20px rgba(255, 208, 0, 0.3);
+            transform: translateY(-2px);
+        }
+
+        &:active {
+            transform: translateY(1px);
+            box-shadow: 0 2px 10px rgba(255, 208, 0, 0.2);
+        }
+    `,
+    ChatContainer: styled.div`
+        display: flex;
+        flex-direction: column;
+        height: calc(100vh - 180px);
+        max-width: 800px;
+        margin: 100px auto 80px;
+        background: #ffffff;
+        border-radius: 20px;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+        overflow: hidden;
+        position: relative;
     `
 }
