@@ -254,183 +254,239 @@ const ErrorBanner = ({ message, onRetry }) => (
 );
 
 export const Main = ({ isGitSubmitted, onGitSubmit, showModal, setShowModal }) => {
-    const navigate = useNavigate();
-    const [gitUrl, setGitUrl] = React.useState('');
-    const [branchName, setBranchName] = React.useState('main');
-    const [token, setToken] = React.useState('None');
-    const [isPrivateRepo, setIsPrivateRepo] = React.useState(false);
-    const [isUrlValid, setIsUrlValid] = React.useState(false);
-    const [isBranchValid, setIsBranchValid] = React.useState(true);
-    const [isCheckingChat, setIsCheckingChat] = useState(false);
-    const [chatError, setChatError] = useState('');
+  const navigate = useNavigate();
+  const [gitUrl, setGitUrl] = React.useState('');
+  const [branchName, setBranchName] = React.useState('main');
+  const [token, setToken] = React.useState('None');
+  const [isPrivateRepo, setIsPrivateRepo] = React.useState(false);
+  const [isUrlValid, setIsUrlValid] = React.useState(false);
+  const [isBranchValid, setIsBranchValid] = React.useState(true);
+  const [isCheckingChat, setIsCheckingChat] = useState(false);
+  const [chatError, setChatError] = useState('');
 
-    const validateUrl = (url) => {
-        const gitUrlRegex = /^(https?:\/\/)?(www\.)?github\.com\/[a-zA-Z0-9-]+\/[a-zA-Z0-9-_.]+(?:\/)?$/;
-        return gitUrlRegex.test(url);
-    };
+  const validateUrl = (url) => {
+    const gitUrlRegex = /^(https?:\/\/)?(www\.)?github\.com\/[a-zA-Z0-9-]+\/[a-zA-Z0-9-_.]+(?:\/)?$/;
+    return gitUrlRegex.test(url);
+  };
 
-    const handleUrlChange = (value) => {
-        setGitUrl(value);
-        setIsUrlValid(validateUrl(value));
-    };
+  const handleUrlChange = (value) => {
+    setGitUrl(value);
+    setIsUrlValid(validateUrl(value));
+  };
 
-    const handleBranchChange = (value) => {
-        setBranchName(value);
-        setIsBranchValid(value.length > 0);
-    };
+  const handleBranchChange = (value) => {
+    setBranchName(value);
+    setIsBranchValid(value.length > 0);
+  };
 
-    const handleTokenChange = (value) => {
-        setToken(value);
-    };
+  const handleTokenChange = (value) => {
+    setToken(value);
+  };
 
-    const handlePrivateRepoChange = (e) => {
-        setIsPrivateRepo(e.target.checked);
-        if (!e.target.checked) {
-            setToken('None');
+  const handlePrivateRepoChange = (e) => {
+    setIsPrivateRepo(e.target.checked);
+    if (!e.target.checked) {
+      setToken('None');
+    }
+  };
+
+  const fetchFileHierarchy = async (retryCount = 0) => {
+    const maxRetries = 5;
+    const initialDelay = 1000; // 1 секунда
+    const jitter = 200; // случайное отклонение в миллисекундах
+
+    try {
+      const response = await fetch('http://localhost:8001/hierarchy', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
         }
-    };
+      });
 
-    const validation = async () => {
-        if (isUrlValid && isBranchValid) {
-            setIsCheckingChat(true);
-            setChatError('');
-            try {
-                const response = await fetch('http://localhost:5001/api/clone', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        repo_url: gitUrl,
-                        branch: branchName,
-                        token: isPrivateRepo ? token : 'None'
-                    }),
-                });
+      if (response.status === 418) {
+        // Если сервер возвращает 418 (I'm a teapot), выполняем повторную попытку
+        if (retryCount < maxRetries) {
+          const delay = Math.min(
+            initialDelay * Math.pow(2, retryCount) + Math.random() * jitter,
+            30000 // Максимальная задержка 30 секунд
+          );
 
-                if (!response.ok) {
-                    throw new Error('Network response was not ok');
-                }
-
-                const data = await response.json();
-                setShowModal(true);
-                setGitUrl('');
-                onGitSubmit();
-            } catch (error) {
-                console.error('Error:', error);
-                setChatError('Ошибка соединения с сервером');
-            } finally {
-                setIsCheckingChat(false);
-            }
+          await new Promise(resolve => setTimeout(resolve, delay));
+          return fetchFileHierarchy(retryCount + 1);
+        } else {
+          throw new Error('Превышено максимальное количество попыток (сервер вернул 418)');
         }
-    };
+      }
 
-    return(
-        <RootContainer isGitSubmitted={isGitSubmitted}>
-            {!isGitSubmitted && (
-                <MainContainer>
-                    <RobotContainer>
-                        <img 
-                            src={BeelineRobot}
-                            alt="Beeline Robot" 
-                            style={{ 
-                                height: '150px',
-                                width: 'auto',
-                                filter: 'drop-shadow(0 10px 20px rgba(0, 0, 0, 0.1))'
-                            }} 
-                        />
-                    </RobotContainer>
-                    
-                    <WelcomeText>Добро пожаловать в CodeManager!</WelcomeText>
-                    <SubText>
-                        Введите URL вашего GitHub репозитория и выберите ветку, чтобы начать анализ кода
-                    </SubText>
+      if (!response.ok) {
+        throw new Error(`Ошибка сервера: ${response.status}`);
+      }
 
-                    <FormWrapper>
-                        <InputGroup>
-                            <Label>URL GitHub репозитория</Label>
-                            <InputComponent 
-                                inputValue={gitUrl} 
-                                action={handleUrlChange} 
-                                placeholder={"https://github.com/username/repository"} 
-                                maxLength={100}
-                            />
-                            {gitUrl && !isUrlValid && (
-                                <ErrorText>
-                                    Пожалуйста, введите корректный URL GitHub репозитория
-                                </ErrorText>
-                            )}
-                        </InputGroup>
+      const data = await response.json();
+      console.log(data);
+      return data;
+    } catch (error) {
+      console.error('Ошибка при получении иерархии файлов:', error);
 
-                        <InputGroup>
-                            <Label>Название ветки</Label>
-                            <InputComponent 
-                                inputValue={branchName} 
-                                action={handleBranchChange} 
-                                placeholder={"main"} 
-                                maxLength={50}
-                            />
-                            {!isBranchValid && (
-                                <ErrorText>
-                                    Пожалуйста, введите название ветки
-                                </ErrorText>
-                            )}
-                        </InputGroup>
+      // Для ошибок, не связанных с 418, возвращаем null, чтобы не блокировать интерфейс
+      if (error.message.includes('418') && retryCount >= maxRetries) {
+        throw error; // Пробрасываем ошибку только если это последняя попытка для 418
+      }
 
-                        <InputGroup>
-                            <CheckboxLabel>
-                                <input 
-                                    type="checkbox" 
-                                    checked={isPrivateRepo}
-                                    onChange={handlePrivateRepoChange}
-                                />
-                                Приватный репозиторий
-                            </CheckboxLabel>
-                            {isPrivateRepo && (
-                                <>
-                                    <Label>Введите токен доступа</Label>
-                                    <InputComponent 
-                                        inputValue={token} 
-                                        action={handleTokenChange} 
-                                        placeholder={"None"} 
-                                        maxLength={100}
-                                        type="password"
-                                    />
-                                </>
-                            )}
-                        </InputGroup>
+      return null; // Возвращаем null для других ошибок
+    }
+  };
 
-                        <SubmitButton 
-                            onClick={validation}
-                            disabled={!isUrlValid || !isBranchValid}
-                        >
-                            Начать анализ
-                        </SubmitButton>
-                    </FormWrapper>
-                </MainContainer>
-            )}
-            
-            {isGitSubmitted && <Chat />}
+  const validation = async () => {
+    if (isUrlValid && isBranchValid) {
+      setIsCheckingChat(true);
+      setChatError('');
+      try {
+        // Первый запрос - клонирование репозитория
+        const cloneResponse = await fetch('http://localhost:5001/api/clone', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            repo_url: gitUrl,
+            branch: branchName,
+            token: isPrivateRepo ? token : 'None'
+          }),
+        });
 
-            {showModal && (
-                <css.ModalOverlay>
-                    <css.ModalContent>
-                        <css.ModalTitle>Успешно!</css.ModalTitle>
-                        <css.ModalText>
-                            Архитектура проекта и документация были успешно сгенерированы и отправлены на страницу архитектуры.
-                        </css.ModalText>
-                        <css.ModalButton onClick={() => {
-                            setShowModal(false);
-                        }}>
-                            Перейти к чату
-                        </css.ModalButton>
-                    </css.ModalContent>
-                </css.ModalOverlay>
-            )}
+        if (!cloneResponse.ok) {
+          throw new Error('Network response was not ok');
+        }
 
-            {isCheckingChat && <Spinner />}
-            {chatError && <ErrorBanner message={chatError} onRetry={validation} />}
+        // Второй запрос - получение иерархии файлов
+        const hierarchyData = await fetchFileHierarchy();
+        console.log('File hierarchy:', hierarchyData);
 
-            <Foot />
-        </RootContainer>
-    )
+        // Обработка успешного завершения
+        setShowModal(true);
+        setGitUrl('');
+        onGitSubmit();
+
+        // Можно передать hierarchyData в Chat или сохранить в состоянии
+      } catch (error) {
+        console.error('Error:', error);
+        setChatError('Ошибка соединения с сервером');
+      } finally {
+        setIsCheckingChat(false);
+      }
+    }
+  };
+
+
+
+  return (
+    <RootContainer isGitSubmitted={isGitSubmitted}>
+      {!isGitSubmitted && (
+        <MainContainer>
+          <RobotContainer>
+            <img
+              src={BeelineRobot}
+              alt="Beeline Robot"
+              style={{
+                height: '150px',
+                width: 'auto',
+                filter: 'drop-shadow(0 10px 20px rgba(0, 0, 0, 0.1))'
+              }}
+            />
+          </RobotContainer>
+
+          <WelcomeText>Добро пожаловать в CodeManager!</WelcomeText>
+          <SubText>
+            Введите URL вашего GitHub репозитория и выберите ветку, чтобы начать анализ кода
+          </SubText>
+
+          <FormWrapper>
+            <InputGroup>
+              <Label>URL GitHub репозитория</Label>
+              <InputComponent
+                inputValue={gitUrl}
+                action={handleUrlChange}
+                placeholder={"https://github.com/username/repository"}
+                maxLength={100}
+              />
+              {gitUrl && !isUrlValid && (
+                <ErrorText>
+                  Пожалуйста, введите корректный URL GitHub репозитория
+                </ErrorText>
+              )}
+            </InputGroup>
+
+            <InputGroup>
+              <Label>Название ветки</Label>
+              <InputComponent
+                inputValue={branchName}
+                action={handleBranchChange}
+                placeholder={"main"}
+                maxLength={50}
+              />
+              {!isBranchValid && (
+                <ErrorText>
+                  Пожалуйста, введите название ветки
+                </ErrorText>
+              )}
+            </InputGroup>
+
+            <InputGroup>
+              <CheckboxLabel>
+                <input
+                  type="checkbox"
+                  checked={isPrivateRepo}
+                  onChange={handlePrivateRepoChange}
+                />
+                Приватный репозиторий
+              </CheckboxLabel>
+              {isPrivateRepo && (
+                <>
+                  <Label>Введите токен доступа</Label>
+                  <InputComponent
+                    inputValue={token}
+                    action={handleTokenChange}
+                    placeholder={"None"}
+                    maxLength={100}
+                    type="password"
+                  />
+                </>
+              )}
+            </InputGroup>
+
+            <SubmitButton
+              onClick={validation}
+              disabled={!isUrlValid || !isBranchValid}
+            >
+              Начать анализ
+            </SubmitButton>
+          </FormWrapper>
+        </MainContainer>
+      )}
+
+      {isGitSubmitted && <Chat />}
+
+      {showModal && (
+        <css.ModalOverlay>
+          <css.ModalContent>
+            <css.ModalTitle>Успешно!</css.ModalTitle>
+            <css.ModalText>
+              Архитектура проекта и документация были успешно сгенерированы и отправлены на страницу архитектуры.
+            </css.ModalText>
+            <css.ModalButton onClick={() => {
+              setShowModal(false);
+            }}>
+              Перейти к чату
+            </css.ModalButton>
+          </css.ModalContent>
+        </css.ModalOverlay>
+      )}
+
+      {isCheckingChat && <Spinner />}
+      {chatError && <ErrorBanner message={chatError} onRetry={validation} />}
+
+      <Foot />
+    </RootContainer>
+  )
 }

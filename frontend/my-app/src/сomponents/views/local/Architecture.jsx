@@ -7,6 +7,8 @@ import { Link } from 'react-router-dom';
 import mermaid from 'mermaid';
 import { TransformWrapper, TransformComponent } from 'react-zoom-pan-pinch';
 import 'highlight.js/styles/github.css';
+import { DocumentationTree } from './DocumentationTree';
+import { DocumentationViewer } from './DocumentationViewer';
 
 const Container = styled.div`
   display: flex;
@@ -268,147 +270,17 @@ const ControlButton = styled.button`
   }
 `;
 
-// Моковые данные для демонстрации
-const mockTree = {
-  name: 'docs',
-  type: 'directory',
-  children: [
-    {
-      name: 'chat',
-      type: 'directory',
-      children: [
-        {
-          name: 'ChatCore.__init__.md',
-          type: 'file',
-          content: `# Documentation for \`ChatCore.__init__\`
-
-## Overview
-
-The \`__init__\` method is the constructor for the \`ChatCore\` class. It initializes an instance of \`ChatCore\` with a specified dimensionality for its internal data store.
-
-## Method Signature
-
-\`\`\`python
-def __init__(self, dim=1536):
-\`\`\`
-
-## Parameters
-
-- **dim** (int, optional): The dimensionality of the vectors stored within the \`ChatCore\` instance. Defaults to \`1536\`.
-
-## Description
-
-When a new \`ChatCore\` object is instantiated, the constructor initializes an internal data store by creating an instance of \`HybridStore\` with the specified dimensionality (\`dim\`). This store is assigned to the instance variable \`self.store\`.
-
-## Implementation Details
-
-- **\`self.store\`**: An instance of \`HybridStore\`, configured to handle vectors of dimension \`dim\`.
-- **\`HybridStore\`**: Presumably a class responsible for storing and managing high-dimensional vector data, possibly supporting hybrid storage mechanisms (e.g., combining in-memory and persistent storage).
-
-## Usage Example
-
-\`\`\`python
-# Create a ChatCore instance with default vector dimension (1536)
-chat = ChatCore()
-
-# Create a ChatCore instance with a custom vector dimension
-custom_chat = ChatCore(dim=1024)
-\`\`\`
-
-## Notes
-
-- The default dimension (\`1536\`) suggests compatibility with models or embeddings that produce vectors of this size.
-- Adjusting \`dim\` allows flexibility if different embedding sizes are used.
-
-## Dependencies
-
-- **\`HybridStore\`**: A class that must be defined elsewhere in the codebase. It should accept an integer parameter specifying vector dimensions during initialization.
-
----
-
-**Summary:**  
-The \`__init__\` method sets up the core data storage component of \`ChatCore\` with a specified vector dimension, enabling the class to handle high-dimensional vector data efficiently.`
-        },
-        {
-          name: 'ChatCore.ingest.md',
-          type: 'file',
-          content: '# Documentation for `ChatCore.ingest`'
-        }
-      ]
-    },
-    {
-      name: 'api',
-      type: 'directory',
-      children: [
-        {
-          name: 'endpoints.md',
-          type: 'file',
-          content: '# API Endpoints Documentation'
-        }
-      ]
-    }
-  ]
-};
-
-const mockArchitectureTree = {
-  name: 'frontend',
-  type: 'directory',
-  children: [
-    {
-      name: 'app_frontend',
-      type: 'directory',
-      children: [
-        {
-          name: 'src',
-          type: 'directory',
-          children: [
-            {
-              name: 'App.js',
-              type: 'file',
-              mermaid: `
-flowchart LR
-  classDef file   fill:#e3f2fd,stroke:#1e88e5,stroke-width:2px,padding:10px;
-  classDef folder fill:#fff3e0,stroke:#fb8c00,stroke-width:2px,stroke-dasharray:5 5,padding:10px;
-
-  subgraph frontend_app_frontend_src[frontend/app_frontend/src]
-    Func_App["App()"]
-    Target["App.js"]
-    App_test_js["App.test.js"]
-    Func_getUserFromStorage["getUserFromStorage()"]
-    index_js["index.js"]
-  end
-
-  index_js -- Target
-  index_js -- Func_App
-  App_test_js -- Target
-  App_test_js -- Func_App
-  Func_getUserFromStorage -- Target
-  Func_App -- Target
-
-  class Target file
-  class Func_App file
-  class Func_getUserFromStorage file
-  class index_js file
-  class App_test_js file
-`
-            }
-          ]
-        }
-      ]
-    }
-  ]
-};
-
-const renderTree = (node, level = 0, selectedFile, onSelect, expandedNodes, toggleNode) => {
+const renderTree = (node, level = 0, selectedFile, onSelect, expandedNodes, toggleNode, path = '') => {
   const isDirectory = node.type === 'directory';
   const isSelected = selectedFile === node.name;
   const isExpanded = expandedNodes[node.name] || false;
+  const currentPath = path ? `${path}/${node.name}` : node.name;
 
   const handleClick = () => {
     if (isDirectory) {
       toggleNode(node.name);
     } else {
-      onSelect(node);
+      onSelect(node, currentPath);
     }
   };
 
@@ -426,7 +298,7 @@ const renderTree = (node, level = 0, selectedFile, onSelect, expandedNodes, togg
       </TreeNode>
       {isDirectory && isExpanded && node.children && (
         <div>
-          {node.children.map(child => renderTree(child, level + 1, selectedFile, onSelect, expandedNodes, toggleNode))}
+          {node.children.map(child => renderTree(child, level + 1, selectedFile, onSelect, expandedNodes, toggleNode, currentPath))}
         </div>
       )}
     </div>
@@ -435,11 +307,36 @@ const renderTree = (node, level = 0, selectedFile, onSelect, expandedNodes, togg
 
 export const Architecture = () => {
   const [selectedFile, setSelectedFile] = useState(null);
-  const [documentation, setDocumentation] = useState('');
   const [expandedNodes, setExpandedNodes] = useState({});
   const [activeTab, setActiveTab] = useState('documentation');
   const [mermaidDiagram, setMermaidDiagram] = useState('');
+  const [architectureTree, setArchitectureTree] = useState(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState('');
   const mermaidRef = useRef(null);
+
+  useEffect(() => {
+    const fetchTree = async () => {
+      setIsLoading(true);
+      try {
+        const response = await fetch('http://localhost:8001/hierarchy');
+        if (!response.ok) {
+          throw new Error('Failed to fetch tree data');
+        }
+        const data = await response.json();
+        if (data.hierarchy) {
+          setArchitectureTree(data.hierarchy);
+        }
+      } catch (error) {
+        console.error('Error fetching tree data:', error);
+        setError('Failed to fetch tree data: ' + error.message);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchTree();
+  }, []);
 
   useEffect(() => {
     mermaid.initialize({
@@ -456,26 +353,65 @@ export const Architecture = () => {
   }, []);
 
   useEffect(() => {
-    if (mermaidDiagram && mermaidRef.current) {
-      // Очищаем контейнер
-      mermaidRef.current.innerHTML = '';
-      // Рендерим диаграмму
-      try {
-        mermaid.render('mermaid-svg', mermaidDiagram, (svgCode) => {
-          mermaidRef.current.innerHTML = svgCode;
-        });
-      } catch (e) {
-        mermaidRef.current.innerHTML = '<div style="color: red;">Ошибка рендера диаграммы: ' + e.message + '</div>';
+    const renderDiagram = async () => {
+      if (mermaidDiagram && mermaidRef.current) {
+        try {
+          mermaidRef.current.innerHTML = '';
+
+          const diagramId = `mermaid-${Date.now()}`;
+
+          const { svg } = await mermaid.render(diagramId, mermaidDiagram);
+
+          mermaidRef.current.innerHTML = svg;
+
+          console.log('Diagram rendered successfully');
+        } catch (error) {
+          console.error('Error rendering diagram:', error);
+          mermaidRef.current.innerHTML = `<div style="color: red;">Ошибка рендера диаграммы: ${error.message}</div>`;
+        }
       }
-    }
+    };
+
+    renderDiagram();
   }, [mermaidDiagram]);
 
-  const handleFileSelect = (file) => {
+  const handleFileSelect = async (file, path) => {
     setSelectedFile(file.name);
-    if (activeTab === 'documentation') {
-      setDocumentation(file.content);
-    } else {
-      setMermaidDiagram(file.mermaid);
+    setIsLoading(true);
+    setError('');
+    setMermaidDiagram('');
+
+    try {
+      const response = await fetch('http://localhost:8001/mermaid', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          path,
+          filename: file.name
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch file content');
+      }
+
+      const mermaidText = await response.text();
+      console.log('Received mermaid text:', mermaidText);
+
+      if (mermaidText) {
+        setMermaidDiagram(mermaidText);
+      } else {
+        throw new Error('No mermaid diagram data received');
+      }
+
+    } catch (error) {
+      console.error('Error fetching file content:', error);
+      setError('Failed to fetch file content: ' + error.message);
+      setMermaidDiagram('');
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -490,32 +426,29 @@ export const Architecture = () => {
     if (activeTab === 'documentation') {
       return (
         <ContentContainer>
-          <TreeContainer>
-            {renderTree(mockTree, 0, selectedFile, handleFileSelect, expandedNodes, toggleNode)}
-          </TreeContainer>
-          <DocumentationContainer>
-            {documentation ? (
-              <MarkdownContent>
-                <ReactMarkdown rehypePlugins={[rehypeHighlight]}>
-                  {documentation}
-                </ReactMarkdown>
-              </MarkdownContent>
-            ) : (
-              <div style={{ color: '#666', textAlign: 'center', marginTop: '100px' }}>
-                Выберите файл документации для просмотра
-              </div>
-            )}
-          </DocumentationContainer>
+          <DocumentationTree />
         </ContentContainer>
       );
     } else {
       return (
         <ContentContainer>
           <TreeContainer>
-            {renderTree(mockArchitectureTree, 0, selectedFile, handleFileSelect, expandedNodes, toggleNode)}
+            {isLoading && <div>Loading architecture tree...</div>}
+            {error && <div style={{ color: 'red' }}>{error}</div>}
+            {!isLoading && !error && architectureTree &&
+              renderTree(architectureTree, 0, selectedFile, handleFileSelect, expandedNodes, toggleNode)
+            }
           </TreeContainer>
           <DocumentationContainer>
-            {mermaidDiagram ? (
+            {isLoading ? (
+              <div style={{ color: '#666', textAlign: 'center', marginTop: '100px' }}>
+                Загрузка диаграммы...
+              </div>
+            ) : error ? (
+              <div style={{ color: 'red', textAlign: 'center', marginTop: '100px' }}>
+                {error}
+              </div>
+            ) : mermaidDiagram ? (
               <MermaidContainer>
                 <TransformWrapper
                   initialScale={1}
@@ -526,7 +459,17 @@ export const Architecture = () => {
                   {({ zoomIn, zoomOut, resetTransform }) => (
                     <>
                       <TransformComponent>
-                        <div ref={mermaidRef}></div>
+                        <div
+                          ref={mermaidRef}
+                          style={{
+                            width: '100%',
+                            height: '100%',
+                            display: 'flex',
+                            justifyContent: 'center',
+                            alignItems: 'center',
+                            overflow: 'auto'
+                          }}
+                        ></div>
                       </TransformComponent>
                       <Controls>
                         <ControlButton onClick={() => zoomIn()}>
@@ -545,7 +488,7 @@ export const Architecture = () => {
               </MermaidContainer>
             ) : (
               <div style={{ color: '#666', textAlign: 'center', marginTop: '100px' }}>
-                Выберите файл для просмотра архитектуры
+                Выберите файл для просмотра
               </div>
             )}
           </DocumentationContainer>

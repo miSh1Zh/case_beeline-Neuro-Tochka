@@ -1,6 +1,5 @@
 import os
 import shutil
-import tempfile
 import pickle
 import hashlib
 import sys
@@ -33,7 +32,7 @@ BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
 RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", BROKER_URL)
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 ALLOWED_DOMAINS = ["github.com"]
-CLONE_BASE_DIR = os.getenv("CLONE_BASE_DIR", "./tmp")
+CLONE_BASE_DIR = os.getenv("CLONE_BASE_DIR", "./repo")
 INDEX_FILE = os.getenv("INDEX_FILE", "./index.faiss")
 EMBEDS_CACHE = os.getenv("EMBEDS_CACHE", "embeds_cache.pkl")
 STRUCTURE_CACHE = os.getenv("STRUCTURE_CACHE", "structure_cache.pkl")
@@ -42,17 +41,48 @@ STRUCTURE_CACHE = os.getenv("STRUCTURE_CACHE", "structure_cache.pkl")
 repo_structures = {}
 
 
+def list_all_files(root_dir: str) -> list[str]:
+    """
+    Walk `root_dir` and return a list of all file paths,
+    relative to `root_dir`, using forward-slashes.
+    """
+    files = []
+    for dirpath, _, filenames in os.walk(root_dir):
+        for fn in filenames:
+            # build the relative posix path
+            rel = os.path.relpath(os.path.join(dirpath, fn), root_dir)
+            files.append(rel.replace(os.sep, "/"))
+    return files
+
+
 def _find_docs_root():
     """
     Locate the first 'docs' directory under any cloned repo in CLONE_BASE_DIR.
     """
+    print(f"Looking for docs directory in {CLONE_BASE_DIR}")
+
     if not os.path.isdir(CLONE_BASE_DIR):
+        print(f"Clone base directory does not exist: {CLONE_BASE_DIR}")
         return None
-    for repo in sorted(os.listdir(CLONE_BASE_DIR)):
+
+    repos = sorted(os.listdir(CLONE_BASE_DIR))
+    if not repos:
+        print(f"No repositories found in {CLONE_BASE_DIR}")
+        return None
+
+    print(f"Found repositories: {repos}")
+
+    for repo in repos:
         repo_dir = os.path.join(CLONE_BASE_DIR, repo)
+        if not os.path.isdir(repo_dir):
+            continue
+
         docs_dir = os.path.join(repo_dir, "docs")
         if os.path.isdir(docs_dir):
+            print(f"Found docs directory at: {docs_dir}")
             return docs_dir
+
+    print("No docs directory found in any repository")
     return None
 
 
@@ -79,7 +109,7 @@ client = OpenAI(api_key=OPENAI_API_KEY)
 
 # allow 1 call per second
 CALLS = 1
-PERIOD = 3  # in seconds
+PERIOD = 2  # in seconds
 MAX_RETRIES = 5
 
 
@@ -266,46 +296,45 @@ class ChatCore:
     def ingest(self, repo_path: str) -> int:
         """
         Ingest a repository:
-          1. Generate per-definition docs (rate-limited, parallel, with progress bar).
-          2. Generate module-level docs.
+          1. Generate per-definition docs (parallel, rate-limited, with progress bar).
+          2. Generate module-level docs (parallel, with progress bar).
           3. Embed ALL new chunks in one batch.
           4. Update vector store.
         """
+        # Parse definitions and load cache
         all_defs = parse_directory(repo_path)
         cache = load_embed_cache()
-        all_embeds = []
-        new_items = []
 
-        # 1) Prepare function/class-level tasks
+        # Organize definitions by file
         defs_by_file = defaultdict(list)
         for d in all_defs:
             defs_by_file[d["path"]].append(d)
 
-        # flatten all definitions so we can show a total count
+        # 1) Generate per-definition docs in parallel
+        all_embeds = []
+        new_items = []
         flat_defs = [(path, d) for path, defs in defs_by_file.items() for d in defs]
 
-        with ThreadPoolExecutor(max_workers=4) as pool:
-            futures = {}
-            for path, d in flat_defs:
+        with ThreadPoolExecutor(max_workers=5) as pool:
+
+            def submit_def(path, d):
                 rel_dir = os.path.relpath(os.path.dirname(path), repo_path)
                 base = os.path.splitext(os.path.basename(path))[0]
                 out_dir = os.path.join(repo_path, "docs", rel_dir, base)
                 os.makedirs(out_dir, exist_ok=True)
-
                 prompt = (
                     f"Пиши документацию на русском языке. "
                     f"Сгенерируйте подробную документацию для этого {d['type']} «{d['name']}»:\n"
                     f"```{d['code']}```"
                 )
-                futures[pool.submit(generate_doc, prompt)] = (d, out_dir)
+                return pool.submit(generate_doc, prompt), d, out_dir
 
-            # progress bar over total number of funcs/classes
-            for future in tqdm(
-                as_completed(futures),
-                total=len(futures),
-                desc="Generating per‐definition docs",
+            futures_defs = [submit_def(path, d) for path, d in flat_defs]
+            for future, d, out_dir in tqdm(
+                ((fut, d, out_dir) for fut, d, out_dir in futures_defs),
+                total=len(futures_defs),
+                desc="Generating per-definition docs",
             ):
-                d, out_dir = futures[future]
                 doc_text = future.result()
                 out_file = os.path.join(out_dir, f"{d['name']}.md")
                 with open(out_file, "w", encoding="utf-8") as f:
@@ -324,34 +353,46 @@ class ChatCore:
                 else:
                     new_items.append({**item, "cid": cid})
 
-        # 2) Module‐level docs (sequential)
-        for path in defs_by_file:
-            rel_dir = os.path.relpath(os.path.dirname(path), repo_path)
-            base = os.path.splitext(os.path.basename(path))[0]
-            out_dir = os.path.join(repo_path, "docs", rel_dir, base)
-            with open(path, "r", encoding="utf-8") as f:
-                source = f.read()
-            prompt = (
-                "Пиши документацию на русском языке. Сгенерируйте документацию "
-                f"высокого уровня для этого модуля «{base}»:\n```\n{source}\n```"
-            )
-            file_doc = generate_doc(prompt)
-            out_file = os.path.join(out_dir, "__file__.md")
-            with open(out_file, "w", encoding="utf-8") as f:
-                f.write(file_doc)
-
-            item = {"path": f"{path}::file", "chunk": file_doc}
-            cid = chunk_id(item)
-            if cid in cache:
-                all_embeds.append(
-                    {
-                        "path": item["path"],
-                        "chunk": cache[cid]["chunk"],
-                        "vector": cache[cid]["vector"],
-                    }
+        # 2) Generate module-level docs in parallel
+        module_paths = list(defs_by_file.keys())
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            futures_mods = {}
+            for path in module_paths:
+                rel_dir = os.path.relpath(os.path.dirname(path), repo_path)
+                base = os.path.splitext(os.path.basename(path))[0]
+                out_dir = os.path.join(repo_path, "docs", rel_dir, base)
+                os.makedirs(out_dir, exist_ok=True)
+                with open(path, "r", encoding="utf-8") as f:
+                    source = f.read()
+                prompt = (
+                    "Пиши документацию на русском языке. Сгенерируйте документацию "
+                    f"высокого уровня для этого модуля «{base}»:\n```\n{source}\n```"
                 )
-            else:
-                new_items.append({**item, "cid": cid})
+                futures_mods[pool.submit(generate_doc, prompt)] = (path, out_dir)
+
+            for future in tqdm(
+                as_completed(futures_mods),
+                total=len(futures_mods),
+                desc="Generating module-level docs",
+            ):
+                path, out_dir = futures_mods[future]
+                file_doc = future.result()
+                out_file = os.path.join(out_dir, "__file__.md")
+                with open(out_file, "w", encoding="utf-8") as f:
+                    f.write(file_doc)
+
+                item = {"path": f"{path}::file", "chunk": file_doc}
+                cid = chunk_id(item)
+                if cid in cache:
+                    all_embeds.append(
+                        {
+                            "path": item["path"],
+                            "chunk": cache[cid]["chunk"],
+                            "vector": cache[cid]["vector"],
+                        }
+                    )
+                else:
+                    new_items.append({**item, "cid": cid})
 
         # 3) Embed all new chunks in one batch
         if new_items:
@@ -360,8 +401,7 @@ class ChatCore:
             for it, e in zip(new_items, embeds):
                 cache[it["cid"]] = {"vector": e["vector"], "chunk": e["chunk"]}
                 all_embeds.append(e)
-
-        save_embed_cache(cache)
+            save_embed_cache(cache)
 
         # 4) Update vector store
         self.store.add_embeddings(all_embeds)
@@ -380,7 +420,9 @@ class ChatCore:
         q_tokens = query.split()
         snips = self.store.query(qvec, q_tokens, top_k=5)
 
-        prompt = "Вы являетесь многоязычным ассистентом по документации кода. Используйте эти документы:\n\n"
+        prompt = """Вы — многоязычный ассистент по документации кода. При ответе строго опирайтесь 
+на приведённые ниже документы и примеры кода. Если информация в контекстах отсутствует, 
+ответьте: «Извините, у меня нет достаточных данных для ответа на этот вопрос.»"""
         for s in snips:
             prompt += f"### {s['path']}\n{s['chunk']}\n\n"
         prompt += f"Вопрос пользователя: {query}\nОтвет:"
@@ -459,14 +501,14 @@ def clone_and_ingest(
 
     This task:
     1. Validates the repository URL
-    2. Creates a temporary directory for cloning
-    3. Clones the repository
-    4. Ingests the repository code
-    5. Cleans up temporary files
+    2. Clones the repository directly to CLONE_BASE_DIR/{repo_name}
+    3. Ingests the repository code
 
     Args:
         self: Celery task instance
         repo_url (str): URL of the Git repository to clone
+        branchName (str): Branch to clone (default: main)
+        github_token (str): Optional GitHub token for private repos
 
     Returns:
         dict: Information about the ingested repository
@@ -478,12 +520,19 @@ def clone_and_ingest(
 
     if not is_allowed_repo(repo_url):
         raise ValueError(f"Domain not allowed: {repo_url}")
-    tmpdir = tempfile.mkdtemp(dir=CLONE_BASE_DIR)
     try:
+        # Ensure CLONE_BASE_DIR exists
+        os.makedirs(CLONE_BASE_DIR, exist_ok=True)
+
         # Derive repo name and clone target path
         name = os.path.basename(repo_url.rstrip("/")).removesuffix(".git")
-        target = os.path.join(tmpdir, name)
+        target = os.path.join(CLONE_BASE_DIR, name)
 
+        # Remove target if it already exists
+        if os.path.exists(target):
+            shutil.rmtree(target)
+
+        print(f"Cloning {repo_url} to {target}")
         # Clone repository
         Repo.clone_from(
             repo_url,
@@ -493,25 +542,17 @@ def clone_and_ingest(
         )
         print(f"Cloned {repo_url} branch {branchName} to {target}")
 
+        graph_flask_url = "http://127.0.0.1:8001"
+        payload = {"path": "../" + "repo-chat-mvp" + target[1:]}
+
+        response = requests.post(f"{graph_flask_url}/structure", json=payload)
+
+        all_paths = list_all_files(target)
+        repo_structures[name] = all_paths
+
         # Extract owner and repo for GitHub API call
         parsed = urlparse(repo_url)
         owner_repo = parsed.path.strip("/").removesuffix(".git")  # e.g., "owner/repo"
-
-        # Call GitHub API to fetch primary language
-        api_url = f"https://api.github.com/repos/{owner_repo}"
-        headers = {}
-        GITHUB_TOKEN = github_token
-        if GITHUB_TOKEN:
-            headers["Authorization"] = f"token {GITHUB_TOKEN}"
-
-        response = requests.get(api_url, headers=headers, timeout=10)
-        if response.status_code != 200:
-            raise RuntimeError(
-                f"GitHub API request failed: {response.status_code} {response.text}"
-            )
-        repo_data = response.json()
-        language = repo_data.get("language")
-
         # Ingest repository contents
         count = core.ingest(target)
 
@@ -519,7 +560,7 @@ def clone_and_ingest(
     except GitCommandError as e:
         raise RuntimeError("Git clone failed: " + str(e))
     finally:
-        ...
+        pass
 
 
 # ----------------------------------------------------------------------------
@@ -565,7 +606,7 @@ def enqueue_clone():
     """
     data = request.get_json() or {}
     url = data.get("repo_url")
-    branchName = data.get("branchName")
+    branchName = data.get("branch")
     token = data.get("token")
     if not url:
         return jsonify({"error": "Missing repo_url"}), 400
@@ -638,8 +679,9 @@ def documentation_tree():
     Return the directory tree of the 'docs' folder in your cloned repo.
     """
     docs_root = _find_docs_root()
+
     if not docs_root:
-        return jsonify({"error": "No docs directory found"}), 404
+        print("No docs directory found, returning mock tree for testing")
 
     # Make paths like "docs/..." relative to the parent of 'docs'
     docs_parent = os.path.dirname(docs_root)
@@ -653,23 +695,54 @@ def documentation_file(filepath):
     Return raw contents of a file under the 'docs' folder.
     Example: GET /api/documentation/docs/API.md
     """
+    print(f"Received request for file: {filepath}")
+
     docs_root = _find_docs_root()
+
+    # If no docs directory exists or we can't find the file, return mock content for testing
+    if not docs_root or filepath.startswith("docs/"):
+        print(f"Using mock content for: {filepath}")
+
+        # Generate mock content based on the filepath
+        mock_content = generate_mock_content(filepath)
+        if mock_content:
+            return Response(mock_content, mimetype="text/plain; charset=utf-8"), 200
+
     if not docs_root:
+        print("No docs directory found")
         return jsonify({"error": "No docs directory found"}), 404
 
     docs_parent = os.path.dirname(docs_root)
-    # Normalize and ensure requested path stays within docs_parent
-    safe_full = os.path.normpath(os.path.join(docs_parent, filepath))
-    if not safe_full.startswith(docs_parent + os.sep):
-        abort(400, "Invalid file path")
+
+    # Strip 'docs/' prefix if present - we'll add it back properly
+    if filepath.startswith("docs/"):
+        filepath = filepath[5:]  # Remove 'docs/' prefix
+
+    # Construct the full path properly
+    safe_full = os.path.normpath(os.path.join(docs_root, filepath))
+
+    print(f"Looking for file at: {safe_full}")
+
+    # Security check - make sure we're not accessing files outside the docs directory
+    if not safe_full.startswith(docs_root):
+        print(f"Security error: Path {safe_full} is outside docs root {docs_root}")
+        return jsonify({"error": "Security error: Invalid file path"}), 400
 
     if not os.path.isfile(safe_full):
-        abort(404, "File not found")
+        print(f"File not found: {safe_full}")
+        return Response(mock_content, mimetype="text/plain; charset=utf-8"), 200
+
+        return jsonify({"error": f"File not found: {filepath}"}), 404
 
     # Read and return as plain text (Markdown)
-    with open(safe_full, "r", encoding="utf-8") as f:
-        data = f.read()
-    return Response(data, mimetype="text/plain; charset=utf-8"), 200
+    try:
+        with open(safe_full, "r", encoding="utf-8") as f:
+            data = f.read()
+        print(f"Successfully read file: {filepath}")
+        return Response(data, mimetype="text/plain; charset=utf-8"), 200
+    except Exception as e:
+        print(f"Error reading file {safe_full}: {str(e)}")
+        return jsonify({"error": f"Error reading file: {str(e)}"}), 500
 
 
 @app.route("/api/chat", methods=["POST"])

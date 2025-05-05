@@ -232,13 +232,22 @@ const TypingIndicator = styled.span`
 `;
 
 export const Chat = () => {
-  const [messages, setMessages] = useState([
-    { text: "Привет! Я твой помощник в разработке", isUser: false }
-  ]);
+  const [messages, setMessages] = useState(() => {
+    // Загружаем историю из localStorage при инициализации
+    const savedMessages = localStorage.getItem('chatHistory');
+    return savedMessages ? JSON.parse(savedMessages) : [
+      { text: "Привет! Я твой помощник в разработке", isUser: false }
+    ];
+  });
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef(null);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+
+  // Сохраняем историю в localStorage при каждом изменении
+  useEffect(() => {
+    localStorage.setItem('chatHistory', JSON.stringify(messages));
+  }, [messages]);
 
   useEffect(() => {
     if (messagesEndRef.current && messages.length > 1) {
@@ -282,9 +291,9 @@ export const Chat = () => {
         setMessages(prev => [...prev, { text: data.response, isUser: false }]);
       } catch (error) {
         console.error('Error:', error);
-        setMessages(prev => [...prev, { 
-          text: "Извините, произошла ошибка при отправке сообщения. Пожалуйста, попробуйте еще раз.", 
-          isUser: false 
+        setMessages(prev => [...prev, {
+          text: "Извините, произошла ошибка при отправке сообщения. Пожалуйста, попробуйте еще раз.",
+          isUser: false
         }]);
       } finally {
         setIsLoading(false);
@@ -297,10 +306,12 @@ export const Chat = () => {
   };
 
   const confirmDeleteHistory = () => {
-    setMessages([{ 
-      text: "Привет! Я твой помощник в разработке", 
-      isUser: false 
-    }]);
+    const initialMessage = {
+      text: "Привет! Я твой помощник в разработке",
+      isUser: false
+    };
+    setMessages([initialMessage]);
+    localStorage.setItem('chatHistory', JSON.stringify([initialMessage]));
     setShowDeleteModal(false);
   };
 
@@ -342,7 +353,7 @@ export const Chat = () => {
         )}
         <div ref={messagesEndRef} />
       </ChatMessages>
-      
+
       <ChatInputContainer>
         <input
           type="text"
@@ -352,14 +363,14 @@ export const Chat = () => {
           placeholder="Введите ваше сообщение..."
           disabled={isLoading}
         />
-        <button 
+        <button
           onClick={handleSendMessage}
           disabled={isLoading || !inputValue.trim()}
         >
           {isLoading ? 'Отправка...' : 'Отправить'}
         </button>
-        <button 
-          className="delete-button" 
+        <button
+          className="delete-button"
           onClick={handleDeleteHistory}
           disabled={isLoading}
         >
