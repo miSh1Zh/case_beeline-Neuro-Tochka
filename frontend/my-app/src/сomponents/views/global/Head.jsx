@@ -28,6 +28,7 @@ export const Head = ({ isGitSubmitted, setIsGitSubmitted, showModal, setShowModa
         const path = location.pathname;
         if (path === '/main' || path === '/') return 'Главная';
         if (path.startsWith('/stat/')) return 'Архитектура';
+        if (path === '/documentation') return 'Документация';
         return '';
     };
 
@@ -86,6 +87,19 @@ export const Head = ({ isGitSubmitted, setIsGitSubmitted, showModal, setShowModa
                             }}
                         >
                             Архитектура
+                        </css.ModalButton> 
+                    )}
+                    {isGitSubmitted && (
+                        <css.ModalButton 
+                            onClick={() => navigate('/documentation')} 
+                            style={{
+                                ...buttonCSS,
+                                marginRight: '15px',
+                                backgroundColor: getCurrentPage() === 'Документация' ? '#202634' : '#ffd000',
+                                color: getCurrentPage() === 'Документация' ? '#ffd000' : '#202634'
+                            }}
+                        >
+                            Документация
                         </css.ModalButton> 
                     )}
                 </css.HeaderCSS.MenuContainer>

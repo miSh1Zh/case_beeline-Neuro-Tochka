@@ -1,56 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { css } from '../../../styles/styles.css';
 import ReactMarkdown from 'react-markdown';
 import rehypeHighlight from 'rehype-highlight';
 import 'highlight.js/styles/github.css';
 
-// Моковые данные для демонстрации
-const mockTree = {
-  name: 'docs',
-  type: 'directory',
-  children: [
-    {
-      name: 'API.md',
-      type: 'file',
-      path: 'docs/API.md'
-    },
-    {
-      name: 'database',
-      type: 'directory',
-      children: [
-        {
-          name: 'models.md',
-          type: 'file',
-          path: 'docs/database/models.md'
-        },
-        {
-          name: 'queries.md',
-          type: 'file',
-          path: 'docs/database/queries.md'
-        }
-      ]
-    },
-    {
-      name: 'setup',
-      type: 'directory',
-      children: [
-        {
-          name: 'linux.md',
-          type: 'file',
-          path: 'docs/setup/linux.md'
-        },
-        {
-          name: 'docker.md',
-          type: 'file',
-          path: 'docs/setup/docker.md'
-        }
-      ]
-    }
-  ]
-};
-
 const TreeNode = ({ node, level = 0, onFileClick }) => {
-  const [isExpanded, setIsExpanded] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(true);
   const isDirectory = node.type === 'directory';
   const paddingLeft = `${level * 20}px`;
 
@@ -64,8 +19,8 @@ const TreeNode = ({ node, level = 0, onFileClick }) => {
 
   return (
     <div>
-      <div 
-        style={{ 
+      <div
+        style={{
           paddingLeft,
           cursor: 'pointer',
           display: 'flex',
@@ -86,10 +41,10 @@ const TreeNode = ({ node, level = 0, onFileClick }) => {
       {isDirectory && isExpanded && node.children && (
         <div>
           {node.children.map((child, index) => (
-            <TreeNode 
-              key={index} 
-              node={child} 
-              level={level + 1} 
+            <TreeNode
+              key={index}
+              node={child}
+              level={level + 1}
               onFileClick={onFileClick}
             />
           ))}
@@ -100,21 +55,66 @@ const TreeNode = ({ node, level = 0, onFileClick }) => {
 };
 
 export const DocumentationTree = () => {
+  const [tree, setTree] = useState(null);
   const [selectedFile, setSelectedFile] = useState(null);
   const [fileContent, setFileContent] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    setIsLoading(true);
+    fetch('http://localhost:8001/mermaid', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        path: '/',
+        language: 'python'
+      })
+    })
+      .then(res => {
+        if (!res.ok) {
+          throw new Error(`Failed to fetch tree (${res.status})`);
+        }
+        return res.json();
+      })
+      .then(data => {
+        if (data.status === 'error') {
+          throw new Error(data.message);
+        }
+        console.log('Documentation tree loaded:', data);
+        setTree(data.structure);
+      })
+      .catch(err => {
+        console.error('Error fetching documentation tree:', err);
+        setError(`Failed to load documentation structure: ${err.message}`);
+        setTree(null);
+      })
+      .finally(() => setIsLoading(false));
+  }, []);
+
 
   const handleFileClick = async (path) => {
     setSelectedFile(path);
     setIsLoading(true);
+    setError('');
+
     try {
-      const response = await fetch(`http://localhost:5000/api/documentation/${encodeURIComponent(path)}`);
-      if (!response.ok) throw new Error('Failed to fetch file content');
+      console.log('Fetching file content for:', path);
+      const response = await fetch(`http://localhost:5001/api/documentation/${encodeURIComponent(path)}`);
+
+      if (!response.ok) {
+        console.error(`Failed to fetch file: ${response.status} ${response.statusText}`);
+        throw new Error(`Failed to fetch file (${response.status})`);
+      }
+
       const content = await response.text();
       setFileContent(content);
     } catch (error) {
       console.error('Error fetching file content:', error);
-      setFileContent('Ошибка при загрузке содержимого файла');
+      setError(`Error loading file content: ${error.message}`);
+      setFileContent('');
     } finally {
       setIsLoading(false);
     }
@@ -123,16 +123,28 @@ export const DocumentationTree = () => {
   return (
     <css.DocumentationContainer>
       <css.TreeContainer>
-        <TreeNode node={mockTree} onFileClick={handleFileClick} />
+        {isLoading && !tree && (
+          <div>Загрузка структуры документации...</div>
+        )}
+        {error && !tree && (
+          <div style={{ color: 'red' }}>{error}</div>
+        )}
+        {tree ? (
+          <TreeNode node={tree} onFileClick={handleFileClick} />
+        ) : (
+          !isLoading && !error && <div>Документация недоступна</div>
+        )}
       </css.TreeContainer>
       <css.ContentContainer>
-        {isLoading ? (
-          <div>Загрузка...</div>
-        ) : selectedFile ? (
+        {isLoading && <div>Загрузка...</div>}
+        {error && selectedFile && <div style={{ color: 'red' }}>{error}</div>}
+        {!isLoading && !error && fileContent ? (
           <ReactMarkdown rehypePlugins={[rehypeHighlight]}>
             {fileContent}
           </ReactMarkdown>
-        ) : null}
+        ) : (
+          !isLoading && !error && !selectedFile && <div style={{ color: '#888' }}>Выберите файл для просмотра</div>
+        )}
       </css.ContentContainer>
     </css.DocumentationContainer>
   );

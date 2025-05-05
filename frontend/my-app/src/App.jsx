@@ -4,6 +4,7 @@ import { Main } from "./сomponents/pages/Main";
 import { Stat } from "./сomponents/pages/Stat";
 import { Head } from "./сomponents/views/global/Head";
 import { Plan } from "./сomponents/pages/Plan";
+import { Architecture } from "./сomponents/views/local/Architecture";
 import styled from "styled-components";
 
 const MainContent = styled.div`
@@ -49,6 +50,10 @@ export const App = () => {
           <Route 
             path={'/stat/:viewType'} 
             element={<Stat statData={data}/>}
+          />
+          <Route
+            path={'/documentation'}
+            element={<Architecture />}
           />
           <Route 
             path={'*'}
