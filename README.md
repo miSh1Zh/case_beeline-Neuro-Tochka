@@ -10,3 +10,5 @@
 | Дмитрий Жидких  | MLE | @kypluk4 |
 | Белофастов Александр | BackEnd | @the_real_shady |
 | Михаил Жаднов | Analitic & Research | @miSh_Zh  |
+
+Документацию можно посмотреть в [DOCS](./DOCS.md)
