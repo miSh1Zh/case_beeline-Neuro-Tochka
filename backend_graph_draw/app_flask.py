@@ -1,24 +1,37 @@
-from flask import Flask, request, jsonify, abort
+from __future__ import annotations
+
+"""Flask API providing project structure analysis & Mermaid generation.
+
+Key endpoints
+==============
+* **POST /structure**   → detects dominant language, filters out junk, returns placeholder structure.
+* **POST /mermaid**     → runs language‑specific script (e.g. `mermaid_python.py`) to render Mermaid diagram for a file.
+* **GET  /hierarchy**   → builds a full directory hierarchy with parsed symbols (multi‑language‑ready).
+
+Design points
+-------------
+* Unified *ignore* logic for hidden dirs, VCS folders, build artefacts, etc.
+* Parser registry (`LANG_PARSERS`) — easy to plug extra languages.
+* Graceful error handling: user‑level issues always return HTTP 200 with a JSON payload (per requirement), programmer errors → 500.
+"""
+
 import os
 import subprocess
-import base64
-from pathlib import Path
-from collections import Counter
-from typing import Iterable, Set, Dict, Any
 import sys
+from collections import Counter
+from pathlib import Path
+from typing import Any, Dict, Iterable, List, Set, Tuple
+
+from flask import Flask, jsonify, request, abort
 from flask_cors import CORS
-from structure_extractor import build_hierarchy
+import ast
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
 
-# Map supported languages to file extensions
-LANG_EXTENSIONS: Dict[str, str] = {
-    "python": ".py",
-    "javascript": ".js",
-    "typescript": ".ts",
-    "java": ".java",
-}
+# ──────────────────────────────────────────────────────────────────────────────
+# Configuration
+# ──────────────────────────────────────────────────────────────────────────────
 
 MERMAID_SCRIPT_MAP: Dict[str, str] = {
     ".py": "mermaid_python.py",
@@ -34,6 +47,7 @@ MERMAID_SCRIPT_MAP: Dict[str, str] = {
     ".h": "mermaid_cpp.py",
     ".hpp": "mermaid_cpp.py",
     ".hh": "mermaid_cpp.py",
+    ".go": "mermaid_go.py",
 }
 
 DEFAULT_IGNORE_DIRS: Set[str] = {
@@ -55,28 +69,56 @@ DEFAULT_IGNORE_FILES: Set[str] = {
     ".DS_Store",
 }
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Parsing helpers (language‑specific)
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def parse_python_file(path: str) -> Dict[str, Any]:
+    """Return top‑level functions and classes/methods from a Python source file."""
+    with open(path, "r", encoding="utf‑8") as f:
+        tree = ast.parse(f.read(), filename=path)
+
+    functions: List[str] = []
+    classes: List[Dict[str, Any]] = []
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef):
+            functions.append(node.name)
+        elif isinstance(node, ast.ClassDef):
+            methods = [n.name for n in node.body if isinstance(n, ast.FunctionDef)]
+            classes.append({"name": node.name, "methods": methods})
+    return {"functions": functions, "classes": classes}
+
+
+def parse_generic_file(path: str) -> Dict[str, Any]:
+    """Fallback parser for unsupported languages (returns empty info)."""
+    return {}
+
+
+# Registry of parsers keyed by file extension
+LANG_PARSERS: Dict[str, callable] = {
+    ".py": parse_python_file,
+    # future: add '.js': parse_js_file, '.java': parse_java_file, etc.
+}
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Filesystem helpers
+# ──────────────────────────────────────────────────────────────────────────────
+
 
 def iter_code_files(
     root: Path, extra_ignores: Set[str] | None = None
 ) -> Iterable[Path]:
-    """Yield paths of source‑code files under *root*.
-
-    * Prunes directories listed in `DEFAULT_IGNORE_DIRS` and hidden folders.
-    * Skips hidden files and those listed in `DEFAULT_IGNORE_FILES`.
-    * Accepts only files whose suffix is in `MERMAID_SCRIPT_MAP`.
-    """
-    ignore_dirs = DEFAULT_IGNORE_DIRS.copy()
-    ignore_files = DEFAULT_IGNORE_FILES.copy()
-    if extra_ignores:
-        ignore_dirs |= extra_ignores
-        ignore_files |= extra_ignores
+    """Yield code files under *root* obeying ignore rules and supported suffixes."""
+    ignore_dirs = DEFAULT_IGNORE_DIRS | (extra_ignores or set())
+    ignore_files = DEFAULT_IGNORE_FILES | (extra_ignores or set())
 
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [
             d for d in dirnames if d not in ignore_dirs and not d.startswith(".")
         ]
         for fname in filenames:
-            if fname in ignore_files or fname.startswith("."):
+            if fname.startswith(".") or fname in ignore_files:
                 continue
             path = Path(dirpath, fname)
             if path.suffix.lower() in MERMAID_SCRIPT_MAP:
@@ -84,68 +126,106 @@ def iter_code_files(
 
 
 def write_tmp(filename: str, text: str) -> None:
-    """Best‑effort helper to persist small bits of state for sibling endpoints."""
+    """Persist small bits of cross‑endpoint state (fire‑and‑forget)."""
     try:
         Path(filename).write_text(text, encoding="utf‑8")
     except OSError:
-        # Non‑critical; log if needed
-        pass
+        pass  # Non‑critical
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Hierarchy builder (multi‑language)
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def build_hierarchy(
+    root: str, exts: Tuple[str, ...] | None = None, *, exclude_tests: bool = True
+) -> Dict[str, Any]:
+    """Return nested dict representing directory/file hierarchy.
+
+    * **root** — project root directory.
+    * **exts** — tuple of extensions to parse (default: all keys from `MERMAID_SCRIPT_MAP`).
+    * **exclude_tests** — skip files/dirs whose name contains 'test'.
+    """
+    exts = exts or tuple(MERMAID_SCRIPT_MAP.keys())
+
+    def should_skip(name: str) -> bool:
+        return exclude_tests and "test" in name.lower()
+
+    def recurse(path: Path) -> Dict[str, Any]:
+        name = path.name or str(path)
+        if path.is_dir():
+            children = []
+            for child in sorted(path.iterdir(), key=lambda p: p.name):
+                if should_skip(child.name):
+                    continue
+                if child.name in DEFAULT_IGNORE_DIRS or child.name.startswith("."):
+                    continue
+                children.append(recurse(child))
+            return {"type": "directory", "name": name, "children": children}
+        else:
+            node: Dict[str, Any] = {"type": "file", "name": name}
+            suffix = path.suffix.lower()
+            if suffix in exts:
+                parser = LANG_PARSERS.get(suffix, parse_generic_file)
+                node.update(parser(str(path)))
+            return node
+
+    return recurse(Path(root))
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# API routes
+# ──────────────────────────────────────────────────────────────────────────────
 
 
 @app.route("/structure", methods=["POST"])
 def get_structure():
-    data = request.get_json()
-    # Check for required fields in the request body
-    if not data or "path" not in data:
-        # Instead of aborting, return a JSON response with error details and 200 status
+    data: Dict[str, Any] = request.get_json(silent=True) or {}
+    root_arg = data.get("path")
+
+    if not root_arg:
+        return (
+            jsonify(
+                {"status": "error", "message": "Request JSON must include 'path'."}
+            ),
+            200,
+        )
+
+    root = Path(root_arg).expanduser().resolve()
+    if not root.exists():
+        return (
+            jsonify({"status": "error", "message": f"Path '{root}' does not exist."}),
+            200,
+        )
+
+    write_tmp("root_path.txt", str(root))
+
+    counter = Counter(p.suffix.lower() for p in iter_code_files(root))
+    if not counter:
         return (
             jsonify(
                 {
                     "status": "error",
-                    "message": "JSON must include 'path' and 'language'.",
+                    "message": "No source code files found under the given path.",
                 }
             ),
             200,
         )
 
-    root = data["path"]
+    top_ext, _ = counter.most_common(1)[0]
+    write_tmp("main_lang.txt", top_ext)
+    main_language = top_ext.lstrip(".")
 
-    # Note: Writing to language.txt and root_path.txt might not be strictly necessary
-    # if this information is passed directly to the structure_extractor function, but keeping it for now.
-    try:
-        with open("root_path.txt", "w") as f:
-            f.write(root)
-    except IOError as e:
-        return (
-            jsonify(
-                {"status": "error", "message": f"Error writing to temporary files: {e}"}
-            ),
-            200,
-        )
+    # Placeholder structure — could call build_hierarchy here if needed
+    structure: Dict[str, Any] = {}
 
-    counter = Counter()
-    for dirpath, _, files in os.walk(root):
-        for fname in files:
-            ext = Path(fname).suffix.lower()
-            if ext in MERMAID_SCRIPT_MAP:
-                counter[ext] += 1
-
-    # 2) Выбираем наиболее частое расширение
-    if counter:
-        top_ext, count = counter.most_common(1)[0]
-        main_language = top_ext.lstrip(".")  # например, "py" или "js"
-        mermaid_script = MERMAID_SCRIPT_MAP[top_ext]  # имя вашего генератора
-    else:
-        main_language = None
-        mermaid_script = None
-
-    with open("main_lang.txt", "w") as f:
-        f.write(f".{main_language}")
-
-    # Если всё прошло успешно, возвращаем 200 и, например, пустой объект или результат
     return (
         jsonify(
-            {"status": "success", "structure": {}}  # <-- сюда вставьте ваши данные
+            {
+                "status": "success",
+                "structure": structure,
+            }
         ),
         200,
     )
@@ -153,114 +233,93 @@ def get_structure():
 
 @app.route("/mermaid", methods=["POST"])
 def get_mermaid():
-    data = request.get_json()
+    data: Dict[str, Any] = request.get_json(silent=True) or {}
+    rel_path = data.get("path")
 
-    if not data or "path" not in data:
-        abort(
-            400,
-            description="JSON must include 'path' (target file) and 'root' (project root).",
-        )
+    if not rel_path:
+        abort(400, description="JSON must include 'path' (file relative to repo root).")
 
-    target_path = f"../repo-chat-mvp/tmp/{data["path"]}".replace("//", "/")
-    print(target_path)
-    with open("root_path.txt", "r") as f:
-        root_path = f.read()
-    with open("main_lang.txt", "r") as f:
-        main_language = f.read()
+    target_path = Path("../repo-chat-mvp/tmp", rel_path).as_posix().replace("//", "/")
 
-    if not os.path.isfile(target_path):
-        abort(
-            400,
-            description=f"Provided target path is not a file or does not exist: {target_path}",
-        )
-    if not os.path.isdir(root_path):
-        abort(
-            400,
-            description=f"Provided root path is not a directory or does not exist: {root_path}",
-        )
+    try:
+        root_path = Path("root_path.txt").read_text().strip()
+    except FileNotFoundError:
+        abort(400, description="/structure must be called first to set up context.")
 
-    # Dictionary mapping file extensions to the corresponding mermaid script filenames
+    if not Path(target_path).is_file():
+        abort(400, description=f"Provided target path is not a file: {target_path}")
+    if not Path(root_path).is_dir():
+        abort(400, description=f"Project root is invalid or missing: {root_path}")
 
-    # Extract extension and determine the script to use
-    _, ext = os.path.splitext(target_path)
-    script_name = MERMAID_SCRIPT_MAP.get(ext.lower())
-
+    ext = Path(target_path).suffix.lower()
+    script_name = MERMAID_SCRIPT_MAP.get(ext)
     if not script_name:
         abort(
             400, description=f"Unsupported file extension for Mermaid generation: {ext}"
         )
 
-    script_path = os.path.join(os.path.dirname(__file__), script_name)
-
-    if not os.path.exists(script_path):
+    script_path = Path(__file__).with_name(script_name)
+    if not script_path.exists():
         abort(500, description=f"Mermaid script not found: {script_name}")
 
+    command = [
+        sys.executable,
+        str(script_path),
+        "--target",
+        target_path,
+        "--root",
+        root_path,
+        "--ext",
+        ext,
+    ]
+
     try:
-        # Construct the command to run the selected script
-        command = [
-            sys.executable,  # Use the same python interpreter that is running Flask
-            script_path,
-            "--target",
-            target_path,
-            "--root",
-            root_path,
-            "--ext",
-            ext.lower(),  # Pass the specific extension to the script
-        ]
-
-        # Run the script as a subprocess
         result = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            check=True,  # Raise CalledProcessError if the script returns a non-zero exit code
-            encoding="utf-8",  # Ensure output is correctly decoded
+            command, capture_output=True, text=True, check=True, encoding="utf‑8"
         )
-
-        # The Mermaid code is in the standard output of the script
-        mermaid_code = result.stdout
-        print(mermaid_code)
-
-        return jsonify({"mermaid_code": mermaid_code})
-
+        return jsonify({"mermaid_code": result.stdout})
     except subprocess.CalledProcessError as e:
-        # Log the error details (optional, but helpful for debugging)
-        print(f"Error running mermaid_python.py: {e}")
-        print(f"Stderr: {e.stderr}")
+        print(f"Error running {script_name}: {e}\nStderr: {e.stderr}")
         abort(500, description=f"Error generating Mermaid diagram: {e.stderr}")
-    except Exception as e:
-        print(f"An unexpected error occurred: {e}")
-        abort(500, description=f"An unexpected error occurred: {e}")
+    except Exception as e:  # noqa: BLE001
+        print(f"Unexpected error: {e}")
+        abort(500, description=f"Unexpected error: {e}")
 
 
 @app.route("/hierarchy", methods=["GET"])
 def get_hierarchy():
     try:
-        with open("root_path.txt", "r") as f:
-            root = f.read().strip()
-        # Если нужно определять основной язык — можете оставить этот блок,
-        # либо просто вызвать build_hierarchy(root).
-        counter = Counter()
-        for dirpath, _, files in os.walk(root):
-            for fname in files:
-                ext = Path(fname).suffix.lower()
-                if ext in MERMAID_SCRIPT_MAP:
-                    counter[ext] += 1
-        main_ext = counter.most_common(1)[0][0] if counter else None
+        root = Path("root_path.txt").read_text().strip()
+    except FileNotFoundError:
+        return (
+            jsonify(
+                {
+                    "status": "error",
+                    "message": "Project not initialised. Call /structure first.",
+                }
+            ),
+            200,
+        )
 
-        # Строим полную иерархию. Если build_hierarchy ожидает два аргумента — передаём ext:
-        full_hierarchy = build_hierarchy(root, main_ext)
+    # Derive list of interesting extensions found in project
+    exts = tuple({p.suffix.lower() for p in iter_code_files(Path(root))}) or tuple(
+        MERMAID_SCRIPT_MAP.keys()
+    )
 
-        # Возвращаем её целиком
+    try:
+        full_hierarchy = build_hierarchy(root, exts)
         return jsonify({"status": "success", "hierarchy": full_hierarchy}), 200
-
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         return (
             jsonify({"status": "error", "message": f"Error building hierarchy: {e}"}),
-            418,
+            200,
         )
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Entrypoint
+# ──────────────────────────────────────────────────────────────────────────────
+
 if __name__ == "__main__":
-    # To run: python app_flask.py
-    app.run(host="0.0.0.0", port=8001)
+    # To run: python app.py
+    app.run(host="0.0.0.0", port=8001, debug=False)

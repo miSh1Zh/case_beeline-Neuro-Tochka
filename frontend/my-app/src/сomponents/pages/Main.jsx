@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useNavigate } from 'react-router-dom';
 import { Chat } from "../views/local/Chat";
 import { Foot } from "../views/global/Foot";
@@ -263,6 +263,9 @@ export const Main = ({ isGitSubmitted, onGitSubmit, showModal, setShowModal }) =
   const [isBranchValid, setIsBranchValid] = React.useState(true);
   const [isCheckingChat, setIsCheckingChat] = useState(false);
   const [chatError, setChatError] = useState('');
+  const [jobId, setJobId] = useState(null);
+  const [jobStatus, setJobStatus] = useState(null);
+  const [progressMessage, setProgressMessage] = useState('');
 
   const validateUrl = (url) => {
     const gitUrlRegex = /^(https?:\/\/)?(www\.)?github\.com\/[a-zA-Z0-9-]+\/[a-zA-Z0-9-_.]+(?:\/)?$/;
@@ -290,60 +293,77 @@ export const Main = ({ isGitSubmitted, onGitSubmit, showModal, setShowModal }) =
     }
   };
 
-  const fetchFileHierarchy = async (retryCount = 0) => {
-    const maxRetries = 5;
-    const initialDelay = 1000; // 1 секунда
-    const jitter = 200; // случайное отклонение в миллисекундах
-
+  // Функция для проверки статуса задачи
+  const checkJobStatus = async (id) => {
     try {
-      const response = await fetch('http://localhost:8001/hierarchy', {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        }
-      });
-
-      if (response.status === 418) {
-        // Если сервер возвращает 418 (I'm a teapot), выполняем повторную попытку
-        if (retryCount < maxRetries) {
-          const delay = Math.min(
-            initialDelay * Math.pow(2, retryCount) + Math.random() * jitter,
-            30000 // Максимальная задержка 30 секунд
-          );
-
-          await new Promise(resolve => setTimeout(resolve, delay));
-          return fetchFileHierarchy(retryCount + 1);
-        } else {
-          throw new Error('Превышено максимальное количество попыток (сервер вернул 418)');
-        }
-      }
-
+      const response = await fetch(`http://localhost:5001/api/job/${id}`);
       if (!response.ok) {
-        throw new Error(`Ошибка сервера: ${response.status}`);
+        throw new Error('Failed to fetch job status');
       }
-
       const data = await response.json();
-      console.log(data);
-      return data;
-    } catch (error) {
-      console.error('Ошибка при получении иерархии файлов:', error);
+      setJobStatus(data.status);
 
-      // Для ошибок, не связанных с 418, возвращаем null, чтобы не блокировать интерфейс
-      if (error.message.includes('418') && retryCount >= maxRetries) {
-        throw error; // Пробрасываем ошибку только если это последняя попытка для 418
+      switch (data.status) {
+        case 'PENDING':
+          setProgressMessage('Задача в очереди...');
+          break;
+        case 'STARTED':
+          setProgressMessage('Анализ репозитория...');
+          break;
+        case 'SUCCESS':
+          setProgressMessage('Анализ завершен!');
+          setShowModal(true);
+          setGitUrl('');
+          onGitSubmit();
+          setIsCheckingChat(false);
+          setJobId(null);
+          setJobStatus(null);
+          return true;
+        case 'FAILURE':
+          setChatError(data.error || 'Произошла ошибка при анализе репозитория');
+          setIsCheckingChat(false);
+          setJobId(null);
+          setJobStatus(null);
+          return true;
+        default:
+          setProgressMessage('Обработка...');
       }
-
-      return null; // Возвращаем null для других ошибок
+      return false;
+    } catch (error) {
+      console.error('Error checking job status:', error);
+      setChatError('Ошибка при проверке статуса задачи');
+      setIsCheckingChat(false);
+      setJobId(null);
+      setJobStatus(null);
+      return true;
     }
   };
+
+  // Эффект для отслеживания статуса задачи
+  useEffect(() => {
+    let intervalId;
+    if (jobId && isCheckingChat) {
+      intervalId = setInterval(async () => {
+        const shouldStop = await checkJobStatus(jobId);
+        if (shouldStop) {
+          clearInterval(intervalId);
+        }
+      }, 2000); // Проверяем каждые 2 секунды
+    }
+    return () => {
+      if (intervalId) {
+        clearInterval(intervalId);
+      }
+    };
+  }, [jobId, isCheckingChat]);
 
   const validation = async () => {
     if (isUrlValid && isBranchValid) {
       setIsCheckingChat(true);
       setChatError('');
+      setProgressMessage('Отправка запроса...');
       try {
-        // Первый запрос - клонирование репозитория
-        const cloneResponse = await fetch('http://localhost:5001/api/clone', {
+        const response = await fetch('http://localhost:5001/api/clone', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -355,30 +375,24 @@ export const Main = ({ isGitSubmitted, onGitSubmit, showModal, setShowModal }) =
           }),
         });
 
-        if (!cloneResponse.ok) {
+        if (!response.ok) {
           throw new Error('Network response was not ok');
         }
 
-        // Второй запрос - получение иерархии файлов
-        const hierarchyData = await fetchFileHierarchy();
-        console.log('File hierarchy:', hierarchyData);
-
-        // Обработка успешного завершения
-        setShowModal(true);
-        setGitUrl('');
-        onGitSubmit();
-
-        // Можно передать hierarchyData в Chat или сохранить в состоянии
+        const data = await response.json();
+        if (data.job_id) {
+          setJobId(data.job_id);
+          setProgressMessage('Задача создана, ожидание...');
+        } else {
+          throw new Error('No job ID received');
+        }
       } catch (error) {
         console.error('Error:', error);
         setChatError('Ошибка соединения с сервером');
-      } finally {
         setIsCheckingChat(false);
       }
     }
   };
-
-
 
   return (
     <RootContainer isGitSubmitted={isGitSubmitted}>
@@ -457,9 +471,9 @@ export const Main = ({ isGitSubmitted, onGitSubmit, showModal, setShowModal }) =
 
             <SubmitButton
               onClick={validation}
-              disabled={!isUrlValid || !isBranchValid}
+              disabled={!isUrlValid || !isBranchValid || isCheckingChat}
             >
-              Начать анализ
+              {isCheckingChat ? 'Анализ...' : 'Начать анализ'}
             </SubmitButton>
           </FormWrapper>
         </MainContainer>
@@ -483,7 +497,23 @@ export const Main = ({ isGitSubmitted, onGitSubmit, showModal, setShowModal }) =
         </css.ModalOverlay>
       )}
 
-      {isCheckingChat && <Spinner />}
+      {isCheckingChat && (
+        <div style={{
+          position: 'fixed',
+          top: '50%',
+          left: '50%',
+          transform: 'translate(-50%, -50%)',
+          background: 'white',
+          padding: '20px',
+          borderRadius: '10px',
+          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+          zIndex: 1000,
+          textAlign: 'center'
+        }}>
+          <Spinner />
+          <p style={{ marginTop: '15px', color: '#666' }}>{progressMessage}</p>
+        </div>
+      )}
       {chatError && <ErrorBanner message={chatError} onRetry={validation} />}
 
       <Foot />

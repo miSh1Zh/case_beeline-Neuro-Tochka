@@ -1,1 +1,1 @@
-../repo-chat-mvp/tmp/python-clean-hex
+/Users/aleksandrbelofastov/case3/case_beeline-Neuro-Tochka/repo-chat-mvp/repo/clean-architecture

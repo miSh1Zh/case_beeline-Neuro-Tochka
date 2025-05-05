@@ -287,6 +287,23 @@ class ChatCore:
         parent = os.path.dirname(index_file)
         if parent:
             os.makedirs(parent, exist_ok=True)
+
+        self.store = HybridStore(dim, index_path=index_file)
+
+        try:
+            # load any existing persisted embeddings + BM25 data
+            self.store.load()
+            # now rebuild the in-memory structures so .query() will work
+            self.store.build_index()
+            self.store.build_bm25()
+        except Exception as e:
+            # either no index on disk yet, or some other load-failure—
+            # we'll build everything later in ingest()
+            print(f"[ChatCore] load/build skipped: {e}")
+        index_file = index_path or INDEX_FILE
+        parent = os.path.dirname(index_file)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
         self.store = HybridStore(dim, index_path=index_file)
         try:
             self.store.load()
@@ -415,7 +432,9 @@ class ChatCore:
         """
         Answer a user query about the repository.
         """
-        resp = client.embeddings.create(input=query, model="text-embedding-3-small")
+        resp = client.embeddings.create(
+            input=query, model="emb-openai/text-embedding-3-small"
+        )
         qvec = resp.data[0].embedding
         q_tokens = query.split()
         snips = self.store.query(qvec, q_tokens, top_k=5)
@@ -701,14 +720,6 @@ def documentation_file(filepath):
 
     # If no docs directory exists or we can't find the file, return mock content for testing
     if not docs_root or filepath.startswith("docs/"):
-        print(f"Using mock content for: {filepath}")
-
-        # Generate mock content based on the filepath
-        mock_content = generate_mock_content(filepath)
-        if mock_content:
-            return Response(mock_content, mimetype="text/plain; charset=utf-8"), 200
-
-    if not docs_root:
         print("No docs directory found")
         return jsonify({"error": "No docs directory found"}), 404
 
@@ -730,7 +741,7 @@ def documentation_file(filepath):
 
     if not os.path.isfile(safe_full):
         print(f"File not found: {safe_full}")
-        return Response(mock_content, mimetype="text/plain; charset=utf-8"), 200
+        return Response(), 400
 
         return jsonify({"error": f"File not found: {filepath}"}), 404
 
